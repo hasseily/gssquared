@@ -27,6 +27,7 @@
 #include "mmus/mmu_ii.hpp"
 #include "debug.hpp"
 #include "display/display.hpp"
+#include "devices/pdblock3/AppletiniSpeedControl.hpp"
 #include "devices/pdblock3/pdblock3.hpp"
 #include "util/media.hpp"
 #include "util/ResourceFile.hpp"
@@ -41,6 +42,8 @@ struct pdblock3_data: public SlotData {
     MMU *mmu;
     MMU_II *megaii;
     PDBlock3 *pdb;
+    computer_t *computer = nullptr;
+    AppletiniSpeedControl appletini_speed;
 };
 
 class PDBlock3 : public StorageDevice {
@@ -1036,6 +1039,25 @@ void appletini_write_CFxx(void *context, uint32_t addr, uint8_t data) {
     }
 }
 
+void appletini_write_C074(void *context, uint32_t addr, uint8_t data) {
+    (void)addr;
+    pdblock3_data *pdblock_d = (pdblock3_data *)context;
+    computer_t *computer = pdblock_d->computer;
+    NClockII *clock = computer->clock;
+
+    const AppletiniSpeedTransition transition = pdblock_d->appletini_speed.write(
+        data, clock->get_clock_mode(), clock->get_cpu_per_14m());
+    if (!transition.apply) return;
+
+    clock->set_clock_mode(transition.mode);
+    if (transition.restore_cpu_per_14m) {
+        clock->set_cpu_per_14m(transition.cpu_per_14m);
+    }
+
+    display_state_t *display = (display_state_t *)computer->get_module_state(MODULE_DISPLAY);
+    if (display != nullptr) display_update_video_scanner(display);
+}
+
 
 void map_rom_pdblock3(void *context, SlotType_t slot) {
     pdblock3_data * pdblock_d = (pdblock3_data *)context;
@@ -1132,6 +1154,7 @@ void init_appletini(computer_t *computer, SlotType_t slot)
 
     pdblock_d->mmu = computer->cpu->mmu;
     pdblock_d->megaii = computer->mmu;
+    pdblock_d->computer = computer;
     pdblock_d->_slot = slot;
 
     pdblock_d->slot_rom = new ResourceFile(
@@ -1153,6 +1176,8 @@ void init_appletini(computer_t *computer, SlotType_t slot)
 
     register_smartport_drives(computer, slot, pdblock_d);
 
+    computer->mmu->set_C0XX_write_handler(
+        0xC074, { appletini_write_C074, pdblock_d });
     computer->mmu->set_C8xx_handler(slot, map_rom_appletini, pdblock_d);
     display_enable_appletini_video(computer);
 }

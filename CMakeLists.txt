@@ -804,6 +804,7 @@ if(NOT EMSCRIPTEN)
     add_subdirectory(apps/ssgputexttest)
 
     add_subdirectory(apps/appletinivideotest)
+    add_subdirectory(apps/appletinispeedtest)
 endif()
 
 ################################################################################
