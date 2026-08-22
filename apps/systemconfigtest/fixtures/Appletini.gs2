@@ -1,0 +1,11 @@
+gs2_version = 1
+id = "f4d204b5-97c4-4017-9d3b-a8dd6ab31f75"
+name = "Appletini Test"
+platform = "apple2"
+clock = "ntsc"
+scanner = "apple2"
+builtin = false
+
+[[cards]]
+slot = 7
+card = "appletini"

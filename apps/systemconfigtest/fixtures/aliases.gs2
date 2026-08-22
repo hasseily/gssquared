@@ -1,11 +1,11 @@
 gs2_version = 1
+id = "b11ba37e-b894-4acc-834f-4ea53c562716"
 name = "Alias Test"
 platform = "apple2plus"
+clock = "ntsc"
+scanner = "apple2"
+builtin = false
 
 [[cards]]
 slot = 5
 card = "smartport"
-
-[[cards]]
-slot = 7
-card = "pdblock2"

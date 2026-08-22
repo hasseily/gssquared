@@ -157,7 +157,8 @@ Rules that bite people:
 | `"mem_expansion"` | Slinky-style RAM expansion (up to 1 MB) |
 | `"prodos_block"` | Deprecated - do not use; prefer `"bazfast3"` |
 | `"prodos_block2"` | Deprecated - do not use; prefer `"bazfast3"` |
-| `"bazfast3"` | SmartPort / hard-disk controller (also accepts `"smartport"` or `"pdblock3"`) |
+| `"bazfast3"` | BazFast SmartPort / hard-disk controller (also accepts `"smartport"` or `"pdblock3"`) |
+| `"appletini"` | Appletini SmartPort / video card (slot 7 only, all platforms) |
 | `"vidhd"` | [VIDHD](Cards_VIDHD.md) (65816 //e only) |
 | `"second_sight"` | [Second Sight](Cards_SecondSight.md) (IIgs only) |
 | `"voc"` | [Video Overlay Card](Cards_VOC.md) (IIgs only, slot 3) |
@@ -207,6 +208,7 @@ Supported image types include `.po`, `.dsk`, `.woz`, `.2mg`, `.hdv`, and others 
 |----------|----------------|----------------|
 | Disk II card | `6` (often) | `1`, `2` |
 | SmartPort / BazFast (`bazfast3`) | card slot (often `7`) | `1`–`6` |
+| Appletini (`appletini`) | `7` | `1`–`6` |
 | IIgs built-in 3.5" (IWM) | `5` | `1`, `2` |
 | IIgs built-in 5.25" (IWM) | `6` | `1`, `2` |
 

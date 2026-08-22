@@ -39,3 +39,4 @@
 #include "devices/pdblock2/pdb_structures.hpp"
 
 void init_pdblock3(computer_t *computer, SlotType_t slot);
+void init_appletini(computer_t *computer, SlotType_t slot);
