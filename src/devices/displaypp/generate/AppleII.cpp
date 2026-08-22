@@ -318,7 +318,8 @@ class AppleII_Composite {
 public:
     explicit AppleII_Composite(AppleII_Context &ctx) : ctx_(ctx) { ensure_ntsc(); }
 
-    void generate(video_decode_mode_t mode, bool ntsc, const uint8_t *main, const uint8_t *aux,
+    void generate(video_decode_mode_t mode, video_render_mode_t render,
+                  const uint8_t *main, const uint8_t *aux,
                   Frame560RGBA *out) {
         if (!main || !out) {
             return;
@@ -329,8 +330,9 @@ public:
         }
 
         const uint8_t phase = phase_offset_for(mode);
+        const bool ntsc = render == video_render_mode_t::NTSC;
         const bool color = ntsc && ntsc_colorburst(mode);
-        const RGBA_t on = ntsc ? kWhite : kGreen;
+        const RGBA_t on = render == video_render_mode_t::MONO ? kGreen : kWhite;
 
         uint8_t dots[kDots];
         for (uint16_t lg = 0; lg < 24; lg++) {
@@ -539,6 +541,6 @@ void AppleII_View::generate(video_decode_mode_t decode, video_render_mode_t rend
     if (render == video_render_mode_t::RGB) {
         impl_->gsrgb.generate(decode, main, aux, out560);
     } else {
-        impl_->composite.generate(decode, render == video_render_mode_t::NTSC, main, aux, out560);
+        impl_->composite.generate(decode, render, main, aux, out560);
     }
 }

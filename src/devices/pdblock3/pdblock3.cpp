@@ -26,6 +26,7 @@
 #include "cpu.hpp"
 #include "mmus/mmu_ii.hpp"
 #include "debug.hpp"
+#include "display/display.hpp"
 #include "devices/pdblock3/pdblock3.hpp"
 #include "util/media.hpp"
 #include "util/ResourceFile.hpp"
@@ -1097,5 +1098,6 @@ void init_pdblock3(computer_t *computer, SlotType_t slot)
     }
 
     computer->mmu->set_C8xx_handler(slot, map_rom_pdblock3, pdblock_d);
+    display_enable_appletini_video(computer);
 
 }

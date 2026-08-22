@@ -27,6 +27,8 @@
 
 #include "devices/displaypp/render/Monochrome560.hpp"
 #include "devices/displaypp/render/NTSC560.hpp"
+#include "devices/displaypp/frame/Frames.hpp"
+#include "devices/displaypp/generate/AppletiniVideo.hpp"
 //#include "devices/displaypp/render/GSRGB560.hpp"
 //#include "devices/displaypp/generate/AppleII.cpp"
 #include "devices/displaypp/VideoScanner.hpp"
@@ -36,6 +38,7 @@ class VideoScanGeneratorIntf;
 class VideoScanGenerator_Comp;
 class VideoScanGenerator_RGB;
 class CharRom;
+class AppleII_View;
 
 // Graphics vs Text, C050 / C051
 typedef enum {
@@ -171,6 +174,17 @@ public:
     VideoScanGenerator_Comp *vsgc = nullptr;
     VideoScanGenerator_RGB *vsgr = nullptr;
 
+    // Appletini card video is enabled by the slot device at startup. Its SHR
+    // and double-height surfaces do not fit the normal 910x263 scan texture.
+    bool appletini_video_enabled = false;
+    AppletiniVideo7State appletini_video7;
+    AppletiniSHRRenderInfo appletini_shr_info;
+    AppleII_View *appletini_page_renderer = nullptr;
+    Frame560RGBA *appletini_field_a = nullptr;
+    Frame560RGBA *appletini_field_b = nullptr;
+    SDL_Texture *appletini_legacy_texture = nullptr;
+    SDL_Texture *appletini_shr_texture = nullptr;
+
     // monitor controls
     int32_t vsize = 0;
     int32_t hsize = 0;
@@ -196,6 +210,8 @@ void display_dump_hires_page(MMU_II *mmu, int page);
 void display_dump_text_page(MMU_II *mmu, int page);
 
 void display_update_video_scanner(display_state_t *ds);
+
+void display_enable_appletini_video(computer_t *computer);
 
 void update_vgc_interrupt(display_state_t *ds, bool assert_now);
 void update_megaii_interrupt(display_state_t *ds, bool assert_now);
