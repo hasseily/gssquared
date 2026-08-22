@@ -90,6 +90,7 @@ std::vector<drive_spec_t> derive_drives_from_config(PlatformId_t platform_id,
                 push_drive(out, static_cast<uint16_t>(slot), 1, DRIVE_TYPE_DISKII);
                 break;
             case DEVICE_ID_PD_BLOCK3:
+            case DEVICE_ID_APPLETINI:
                 for (uint16_t d = 0; d < 6; ++d) {
                     push_drive(out, static_cast<uint16_t>(slot), d, DRIVE_TYPE_PRODOS_BLOCK);
                 }

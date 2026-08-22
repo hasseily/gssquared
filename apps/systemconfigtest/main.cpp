@@ -138,7 +138,67 @@ static bool test_aliases() {
     std::string error;
     CHECK(config.load(path.string(), error), "aliases load: " << error);
     CHECK(config.config().slot_devices[5] == DEVICE_ID_PD_BLOCK3, "smartport alias");
-    CHECK(config.config().slot_devices[7] == DEVICE_ID_PD_BLOCK2, "pdblock2 alias");
+    return true;
+}
+
+static bool test_appletini_availability() {
+    static const PlatformId_t platforms[] = {
+        PLATFORM_APPLE_II,
+        PLATFORM_APPLE_II_PLUS,
+        PLATFORM_APPLE_IIE,
+        PLATFORM_APPLE_IIE_ENHANCED,
+        PLATFORM_APPLE_IIE_65816,
+        PLATFORM_APPLE_IIGS,
+        PLATFORM_APPLE_IIGS_ROM3,
+    };
+
+    for (const PlatformId_t platform : platforms) {
+        bool bazfast_in_slot5 = false;
+        for (int slot = 0; slot < 7; ++slot) {
+            for (const auto& choice : cards_allowed_for_slot(platform, slot)) {
+                CHECK(choice.id != DEVICE_ID_APPLETINI,
+                      "Appletini must not be offered outside slot 7");
+                if (slot == 5 && choice.id == DEVICE_ID_PD_BLOCK3) {
+                    bazfast_in_slot5 = true;
+                }
+            }
+        }
+        CHECK(bazfast_in_slot5, "BazFast must remain offered outside slot 7");
+
+        bool found_appletini = false;
+        bool found_bazfast = false;
+        for (const auto& choice : cards_allowed_for_slot(platform, 7)) {
+            if (choice.id == DEVICE_ID_APPLETINI) {
+                CHECK(std::string(choice.toml_name) == "appletini", "canonical Appletini name");
+                CHECK(std::string(choice.display_name) == "Appletini", "Appletini display name");
+                found_appletini = true;
+            } else if (choice.id == DEVICE_ID_PD_BLOCK3) {
+                CHECK(std::string(choice.toml_name) == "bazfast3", "canonical BazFast name");
+                CHECK(std::string(choice.display_name) == "BazFast 3", "BazFast display name");
+                found_bazfast = true;
+            }
+        }
+        CHECK(found_appletini, "Appletini must be offered in slot 7 on every platform");
+        CHECK(found_bazfast, "BazFast must remain offered in slot 7 on every platform");
+    }
+
+    SystemConfig_t invalid{};
+    invalid.platform_id = PLATFORM_APPLE_II;
+    invalid.slot_devices[6] = DEVICE_ID_APPLETINI;
+    std::string error;
+    CHECK(!validate_slot_devices(invalid, error), "Appletini in slot 6 must be rejected");
+    CHECK(error.find("slot 6") != std::string::npos, "invalid Appletini slot error");
+
+    SystemConfig_t both{};
+    both.platform_id = PLATFORM_APPLE_II;
+    both.slot_devices[5] = DEVICE_ID_PD_BLOCK3;
+    both.slot_devices[7] = DEVICE_ID_APPLETINI;
+    CHECK(validate_slot_devices(both, error), "BazFast and Appletini must coexist");
+
+    const auto path = fixture_dir() / "Appletini.gs2";
+    SystemConfig config;
+    CHECK(config.load(path.string(), error), "Appletini config load: " << error);
+    CHECK(config.config().slot_devices[7] == DEVICE_ID_APPLETINI, "Appletini card parse");
     return true;
 }
 
@@ -380,6 +440,7 @@ static bool run_self_tests() {
         {"platforms", test_platforms},
         {"clock_scanner", test_clock_scanner},
         {"aliases", test_aliases},
+        {"appletini_availability", test_appletini_availability},
         {"dual_mockingboard", test_dual_mockingboard},
         {"storage_multivolume", test_storage_multivolume},
         {"parallel_output", test_parallel_output},

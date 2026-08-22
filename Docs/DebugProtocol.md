@@ -742,7 +742,7 @@ Linearized text-page snapshot (de-skewed Apple II `$0400`/`$0800` layout). Retur
 
 Commands call the unified `Mounts` layer (same as CLI `-dsXdY=` and the OSD). They run on the **main emulation thread**.
 
-**Unit numbering:** protocol `unit` is **0-based** (`storage_key_t.drive`). Disk II / IWM 5.25 / 3.5: `0`–`1`. BazFast: `0`–`5`. CLI/TOML use **1-based** drives (`-ds6d1=` → protocol slot `6`, unit `0`).
+**Unit numbering:** protocol `unit` is **0-based** (`storage_key_t.drive`). Disk II / IWM 5.25 / 3.5: `0`–`1`. BazFast/Appletini: `0`–`5`. CLI/TOML use **1-based** drives (`-ds6d1=` → protocol slot `6`, unit `0`).
 
 #### Media status codes (MOUNT / UNMOUNT reply)
 
@@ -770,7 +770,7 @@ Clients should pass an **absolute path** so success does not depend on the emula
 
 **Success reply:** 4 bytes `status`.
 
-Already-mounted behavior matches CLI/UI (floppy replaces without writeback; BazFast may attach under the key).
+Already-mounted behavior matches CLI/UI (floppy replaces without writeback; BazFast/Appletini may attach under the key).
 
 **Bounds:** handshake; payload `< 8` → `E_BAD_LENGTH`; `unit > 5` → `E_BAD_LENGTH`; `N > 4096` → `E_BAD_LENGTH`; no `mounts` → `E_INTERNAL`.
 

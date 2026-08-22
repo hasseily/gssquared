@@ -160,7 +160,8 @@ The TOML key **`device`** is reserved for `[[connections]]` — the virtual peri
 | `"mockingboard"` | `DEVICE_ID_MOCKINGBOARD` | Mockingboard | Multiple instances allowed |
 | `"mouse"` | `DEVICE_ID_MOUSE` | Apple Mouse III (PIA+6805 / Apple ROM). Alias: `"applemouseiii"`. | |
 | `"vidhd"` | `DEVICE_ID_VIDHD` | VIDHD | 65816 //e only |
-| `"bazfast3"` | `DEVICE_ID_PD_BLOCK3` | BazFast 3 (DMA Storage) | Multiple instances allowed |
+| `"bazfast3"` | `DEVICE_ID_PD_BLOCK3` | BazFast 3 (DMA Storage) | Slots 1–7; all platforms |
+| `"appletini"` | `DEVICE_ID_APPLETINI` | Appletini | Slot 7 only; all platforms |
 | `"second_sight"` | `DEVICE_ID_SECOND_SIGHT` | Second Sight | IIgs only, slot 3 only |
 | `"uthernet2"` | `DEVICE_ID_UTHERNET2` | Uthernet II | IIe + IIgs; slots 1–7; multiple instances allowed; see `Docs/Networking.md` |
 
@@ -231,7 +232,7 @@ The loader builds `slot_devices[NUM_SLOTS]` from `[[cards]]`: unlisted slots are
 
 Each card type defines which additional keys are valid on its `[[cards]]` entry. Unknown keys for a card type SHOULD produce a warning; loaders MAY reject them.
 
-Storage card types (`disk_ii`, `prodos_block`, `prodos_block2`, `bazfast3`) have **no** card-level storage properties. Mount disks via `[[storage]]` after the card is installed.
+Storage card types (`disk_ii`, `prodos_block`, `prodos_block2`, `bazfast3`, `appletini`) have **no** card-level storage properties. Mount disks via `[[storage]]` after the card is installed.
 
 Serial-capable slot cards (e.g. Super Serial Card) have **no** connection properties on the card entry. Attach virtual devices via `[[connections]]`.
 
@@ -366,20 +367,20 @@ Rules:
 - **Absolute paths** are used as-is.
 - **Relative paths** are resolved relative to the directory containing the `.gs2` file (recommended for portable configs).
 
-Supported image types are whatever `identify_media()` accepts (`.po`, `.dsk`, `.woz`, `.2mg`, `.hdv`, `.iso`, `.pmap` etc.). APM `.iso` / block images expand to multiple BazFast units the same way a `.pmap` does.
+Supported image types are whatever `identify_media()` accepts (`.po`, `.dsk`, `.woz`, `.2mg`, `.hdv`, `.iso`, `.pmap` etc.). APM `.iso` / block images expand to multiple BazFast/Appletini units the same way a `.pmap` does.
 
 ### Drive map (reference)
 
 | Hardware | `slot` | `drive` values |
 |----------|--------|----------------|
 | Disk II controller | card slot (typically `6`) | `1`, `2` |
-| ProDOS Block / Block 2 / BazFast 3 | card slot | `1`–`6` (BazFast registers six units) |
+| ProDOS Block / Block 2 / BazFast 3 / Appletini | card slot | `1`–`6` (BazFast and Appletini register six units) |
 | IIgs built-in 5.25" (IWM) | `6` | `1`, `2` |
 | IIgs built-in 3.5" (IWM) | `5` | `1`, `2` |
 
 On Apple IIgs, slot `6` is the motherboard IWM 5.25" drives — not a Disk II card. On II/II+/IIe, slot `6` is typically a Disk II card. That difference is invisible to `[[storage]]`: IWM registers its drives with `Mounts` the same way slot cards do, and images mount with the same `{ slot, drive, image }` triple. Validation only needs to check that the composed system has a registered device at that address.
 
-Multi-volume BazFast mounts are multiple rows on the same slot:
+Multi-volume BazFast/Appletini mounts are multiple rows on the same slot:
 
 ```toml
 [[storage]]

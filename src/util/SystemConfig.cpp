@@ -165,6 +165,7 @@ std::optional<device_id> parse_card_type(const std::string& value, std::string& 
         {"second_sight", DEVICE_ID_SECOND_SIGHT},
         {"uthernet2", DEVICE_ID_UTHERNET2},
         {"super_serial", DEVICE_ID_SUPER_SERIAL},
+        {"appletini", DEVICE_ID_APPLETINI},
     };
     const std::string canonical = canonical_card_name(value);
     const auto it = map.find(canonical);
@@ -432,6 +433,7 @@ const char* card_type_name(device_id id) {
         case DEVICE_ID_SECOND_SIGHT: return "second_sight";
         case DEVICE_ID_UTHERNET2: return "uthernet2";
         case DEVICE_ID_SUPER_SERIAL: return "super_serial";
+        case DEVICE_ID_APPLETINI: return "appletini";
         default: return "none";
     }
 }
@@ -454,6 +456,7 @@ static const char* card_display_name(device_id id) {
         case DEVICE_ID_SECOND_SIGHT: return "Second Sight";
         case DEVICE_ID_UTHERNET2: return "Uthernet II";
         case DEVICE_ID_SUPER_SERIAL: return "Super Serial Card";
+        case DEVICE_ID_APPLETINI: return "Appletini";
         default: return "None";
     }
 }

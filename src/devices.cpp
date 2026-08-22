@@ -105,6 +105,7 @@ Device_t Devices[NUM_DEVICE_IDS] = {
     make_device(DEVICE_ID_HOST_FST, init_hostfst, NULL),
     make_device(DEVICE_ID_UTHERNET2, init_slot_uthernet2, NULL),
     make_device(DEVICE_ID_SUPER_SERIAL, init_slot_ssc, NULL),
+    make_device(DEVICE_ID_APPLETINI, init_appletini, NULL),
 };
 
 Device_t *get_device(device_id id) {

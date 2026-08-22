@@ -711,7 +711,7 @@ public:
         return true;
     }
 
-    /* BazFast is a SmartPort block device, so it only speaks 512-byte blocks.
+    /* These SmartPort block devices only speak 512-byte blocks.
        140K is additionally rejected even when it is block-structured (a 140K
        .hdv is 280 blocks of 512): ProDOS assumes anything that size is a Disk II
        on a 5.25 controller, and misdrives it. Those belong in a 5.25 drive. */
@@ -760,17 +760,17 @@ public:
         for (size_t i = 0; i < media_list.size(); i++) {
             const media_descriptor *media = media_list[i];
             if (const char *why = media_reject_reason(media)) {
-                std::cerr << "BazFast: refusing '" << media->filename << "': " << why << std::endl;
+                std::cerr << "SmartPort: refusing '" << media->filename << "': " << why << std::endl;
                 return false;
             }
             if (host_file_already_mounted(media->filename)) {
-                std::cerr << "BazFast: refusing '" << media->filename << "': already mounted" << std::endl;
+                std::cerr << "SmartPort: refusing '" << media->filename << "': already mounted" << std::endl;
                 return false;
             }
             for (size_t k = 0; k < i; k++) {
                 if (same_host_file(media_list[k]->filename, media->filename) &&
                     media_list[k]->data_offset == media->data_offset) {
-                    std::cerr << "BazFast: refusing '" << media->filename << "': already mounted" << std::endl;
+                    std::cerr << "SmartPort: refusing '" << media->filename << "': already mounted" << std::endl;
                     return false;
                 }
             }
@@ -1041,6 +1041,19 @@ void map_rom_pdblock3(void *context, SlotType_t slot) {
     pdblock3_data * pdblock_d = (pdblock3_data *)context;
 
     uint8_t *dp = pdblock_d->c8_rom->get_data();
+    for (uint8_t page = 0; page < 8; page++) {
+        pdblock_d->megaii->map_c1cf_page_read_only(
+            page + 0xC8, dp + (page * 0x100), "PDB3_ROM");
+    }
+    if (DEBUG(DEBUG_PD_BLOCK)) {
+        printf("mapped in PDB3 $C800-$CFFF\n");
+    }
+}
+
+void map_rom_appletini(void *context, SlotType_t slot) {
+    pdblock3_data * pdblock_d = (pdblock3_data *)context;
+
+    uint8_t *dp = pdblock_d->c8_rom->get_data();
     for (uint8_t page = 0; page < 7; page++) {
         pdblock_d->megaii->map_c1cf_page_read_only(
             page + 0xC8, dp + (page * 0x100), "APPLETINI_C8_ROM");
@@ -1057,6 +1070,21 @@ void map_rom_pdblock3(void *context, SlotType_t slot) {
     }
 }
 
+static void register_smartport_drives(computer_t *computer, SlotType_t slot,
+                                      pdblock3_data *pdblock_d) {
+    PDBlock3 *pd3 = new PDBlock3(slot, pdblock_d->mmu);
+    pdblock_d->pdb = pd3;
+
+    storage_key_t key;
+    key.slot = (uint16_t)slot;
+    key.drive = 0;
+    key.partition = 0;
+    key.subunit = 0;
+    for (key.drive = 0; key.drive < 6; key.drive++) {
+        computer->mounts->register_storage_device(key, pd3, DRIVE_TYPE_PRODOS_BLOCK);
+    }
+}
+
 void init_pdblock3(computer_t *computer, SlotType_t slot)
 {
     if (DEBUG(DEBUG_PD_BLOCK)) std::cout << "Initializing PDB3 slot " << slot << std::endl;
@@ -1065,6 +1093,45 @@ void init_pdblock3(computer_t *computer, SlotType_t slot)
     
     pdblock_d->mmu = computer->cpu->mmu;
     pdblock_d->megaii = computer->mmu; // these could be the same (iie) or different (iigs)
+    pdblock_d->_slot = slot;
+
+    pdblock_d->slot_rom = new ResourceFile(
+        "roms/cards/pdblock3/pdblock3.rom", READ_ONLY);
+    pdblock_d->c8_rom = pdblock_d->slot_rom;
+    pdblock_d->slot_rom->load();
+    if (pdblock_d->slot_rom->size() != 0x800) {
+        throw std::runtime_error("BazFast 3 ROM has the wrong size");
+    }
+
+    uint8_t *rom_data = (uint8_t *)(pdblock_d->slot_rom->get_data());
+    computer->mmu->set_slot_rom(slot, rom_data, "PDBLK_ROM");
+
+    register_smartport_drives(computer, slot, pdblock_d);
+
+    computer->mmu->set_C0XX_write_handler(
+        (slot * 0x10) + PD_CMD_RESET, { pdblock3_write_C0x0, pdblock_d });
+    computer->mmu->set_C0XX_write_handler(
+        (slot * 0x10) + PD_CMD_PUT, { pdblock3_write_C0x0, pdblock_d });
+    computer->mmu->set_C0XX_write_handler(
+        (slot * 0x10) + PD_CMD_EXECUTE, { pdblock3_write_C0x0, pdblock_d });
+    computer->mmu->set_C0XX_read_handler(
+        (slot * 0x10) + PD_ERROR_GET, { pdblock3_read_C0x0, pdblock_d });
+    computer->mmu->set_C0XX_read_handler(
+        (slot * 0x10) + PD_STATUS1_GET, { pdblock3_read_C0x0, pdblock_d });
+    computer->mmu->set_C0XX_read_handler(
+        (slot * 0x10) + PD_STATUS2_GET, { pdblock3_read_C0x0, pdblock_d });
+
+    computer->mmu->set_C8xx_handler(slot, map_rom_pdblock3, pdblock_d);
+}
+
+void init_appletini(computer_t *computer, SlotType_t slot)
+{
+    if (DEBUG(DEBUG_PD_BLOCK)) std::cout << "Initializing Appletini slot " << slot << std::endl;
+    pdblock3_data * pdblock_d = new pdblock3_data;
+    pdblock_d->id = DEVICE_ID_APPLETINI;
+
+    pdblock_d->mmu = computer->cpu->mmu;
+    pdblock_d->megaii = computer->mmu;
     pdblock_d->_slot = slot;
 
     pdblock_d->slot_rom = new ResourceFile(
@@ -1084,20 +1151,8 @@ void init_pdblock3(computer_t *computer, SlotType_t slot)
     // register slot ROM
     computer->mmu->set_slot_rom(slot, rom_data, "APPLETINI_SLOT_ROM");
 
-    // register drives with mounts for status reporting
-    PDBlock3 *pd3 = new PDBlock3(slot, pdblock_d->mmu);
-    pdblock_d->pdb = pd3;
+    register_smartport_drives(computer, slot, pdblock_d);
 
-    storage_key_t key;
-    key.slot = (uint16_t)slot;
-    key.drive = 0;
-    key.partition = 0;
-    key.subunit = 0;
-    for (key.drive = 0; key.drive < 6; key.drive++) {
-        computer->mounts->register_storage_device(key, pd3, DRIVE_TYPE_PRODOS_BLOCK);
-    }
-
-    computer->mmu->set_C8xx_handler(slot, map_rom_pdblock3, pdblock_d);
+    computer->mmu->set_C8xx_handler(slot, map_rom_appletini, pdblock_d);
     display_enable_appletini_video(computer);
-
 }

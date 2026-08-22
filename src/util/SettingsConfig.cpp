@@ -210,6 +210,7 @@ std::optional<device_id> parse_card_type(const std::string& value, std::string& 
         {"second_sight", DEVICE_ID_SECOND_SIGHT},
         {"uthernet2", DEVICE_ID_UTHERNET2},
         {"super_serial", DEVICE_ID_SUPER_SERIAL},
+        {"appletini", DEVICE_ID_APPLETINI},
     };
     const std::string canonical = canonical_card_name(value);
     const auto it = map.find(canonical);
