@@ -10,6 +10,7 @@
 #include <string>
 #include <vector>
 
+#include "devices/pdblock3/AppletiniRamWorksConfig.hpp"
 #include "paths.hpp"
 #include "util/SystemConfig.hpp"
 
@@ -199,6 +200,37 @@ static bool test_appletini_availability() {
     SystemConfig config;
     CHECK(config.load(path.string(), error), "Appletini config load: " << error);
     CHECK(config.config().slot_devices[7] == DEVICE_ID_APPLETINI, "Appletini card parse");
+    return true;
+}
+
+static bool test_appletini_ramworks_policy() {
+    SystemConfig_t config{};
+    config.slot_devices[SLOT_7] = DEVICE_ID_APPLETINI;
+
+    config.platform_id = PLATFORM_APPLE_IIE;
+    CHECK(should_enable_appletini_ramworks(config),
+          "Appletini must provide RamWorks on a IIe");
+
+    config.platform_id = PLATFORM_APPLE_IIE_ENHANCED;
+    CHECK(should_enable_appletini_ramworks(config),
+          "Appletini must provide RamWorks on an enhanced IIe");
+
+    config.slot_devices[SLOT_2] = DEVICE_ID_MEM_EXPANSION;
+    CHECK(!should_enable_appletini_ramworks(config),
+          "a separately configured memory expansion must suppress Appletini RamWorks");
+    config.slot_devices[SLOT_2] = DEVICE_ID_NONE;
+
+    config.platform_id = PLATFORM_APPLE_IIE_65816;
+    CHECK(!should_enable_appletini_ramworks(config),
+          "the IIe 65816 platform is outside the Appletini RamWorks policy");
+    config.platform_id = PLATFORM_APPLE_II_PLUS;
+    CHECK(!should_enable_appletini_ramworks(config),
+          "Apple II Plus must not receive the IIe auxiliary expansion");
+
+    config.platform_id = PLATFORM_APPLE_IIE;
+    config.slot_devices[SLOT_7] = DEVICE_ID_PD_BLOCK3;
+    CHECK(!should_enable_appletini_ramworks(config),
+          "BazFast must not enable Appletini RamWorks");
     return true;
 }
 
@@ -441,6 +473,7 @@ static bool run_self_tests() {
         {"clock_scanner", test_clock_scanner},
         {"aliases", test_aliases},
         {"appletini_availability", test_appletini_availability},
+        {"appletini_ramworks_policy", test_appletini_ramworks_policy},
         {"dual_mockingboard", test_dual_mockingboard},
         {"storage_multivolume", test_storage_multivolume},
         {"parallel_output", test_parallel_output},
