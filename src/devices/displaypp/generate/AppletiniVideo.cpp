@@ -17,6 +17,7 @@ constexpr uint32_t SHR_HEIGHT = 400;
 constexpr uint8_t SHR4_MAGIC[4] = {0xD3, 0xC8, 0xD2, 0xB4};
 constexpr uint8_t SHR3200_MAGIC[4] = {0xB3, 0xB2, 0xB0, 0xB0};
 constexpr uint8_t A2LI_MAGIC[4] = {0xC1, 0xB2, 0xCC, 0xE9};
+constexpr uint8_t A2LI_LOAD_HOLD = 0xFF;
 
 constexpr int8_t RGGB_G[13] = {
     -2, 0, 4, 0, -2, 4, 8, 4, -2, 0, 4, 0, -2,
@@ -41,6 +42,11 @@ bool has_shr4(const uint8_t *bank) {
 
 bool has_shr3200(const uint8_t *bank) {
     return has_magic(bank, SHR3200_MAGIC);
+}
+
+bool has_a2li(const uint8_t *main_bank, uint16_t base) {
+    return main_bank != nullptr &&
+           std::memcmp(main_bank + base, A2LI_MAGIC, sizeof(A2LI_MAGIC)) == 0;
 }
 
 RGBA_t apply_monochrome(RGBA_t color, bool enabled) {
@@ -317,9 +323,28 @@ uint8_t appletini_legacy_paged_mode(const uint8_t *main_bank,
                                     bool graphics, bool hires) {
     if (main_bank == nullptr || !graphics) return 0;
     const uint16_t base = hires ? 0x4078 : 0x0878;
-    if (std::memcmp(main_bank + base, A2LI_MAGIC, 4) != 0) return 0;
+    if (!has_a2li(main_bank, base)) return 0;
     const uint8_t mode = main_bank[base + 4];
     return mode == 1 || mode == 2 ? mode : 0;
+}
+
+bool appletini_legacy_load_hold_requested(const uint8_t *main_bank) {
+    if (main_bank == nullptr) return false;
+
+    /* The two holes are one transaction. A wide staging copy can replace the
+       active family marker before the new video mode is selected, so either
+       surviving signed sentinel must keep the old frame published. */
+    return (has_a2li(main_bank, 0x4078) && main_bank[0x407C] == A2LI_LOAD_HOLD) ||
+           (has_a2li(main_bank, 0x0878) && main_bank[0x087C] == A2LI_LOAD_HOLD);
+}
+
+void appletini_legacy_reset_load_hold(uint8_t *main_bank) {
+    if (main_bank == nullptr) return;
+
+    /* $FF is transaction state, not persistent display state. Preserve the
+       committed A2Li values (0/1/2) and abort only an interrupted load. */
+    if (main_bank[0x087C] == A2LI_LOAD_HOLD) main_bank[0x087C] = 0;
+    if (main_bank[0x407C] == A2LI_LOAD_HOLD) main_bank[0x407C] = 0;
 }
 
 AppletiniSHRRenderInfo appletini_render_shr(const uint8_t *main_bank,
