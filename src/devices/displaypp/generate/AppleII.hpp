@@ -25,6 +25,13 @@ enum class video_render_mode_t {
     MONO_WHITE,
 };
 
+/* Video-7 MIX/COL140M uses bit 7 of the four interleaved DHGR bytes
+   AUX[n], MAIN[n], AUX[n+1], MAIN[n+1] to select monochrome for spans of
+   8, 8, 8, and 4 output dots respectively. Bit 7 clear selects mono. */
+bool appleii_dhgr_video7_mix_is_mono(const uint8_t *main_row,
+                                     const uint8_t *aux_row,
+                                     uint16_t dot);
+
 /**
  * Static Apple II / IIgs page generator.
  * Decodes a contiguous page buffer directly to RGBA (no Frame560 bitstream).
@@ -43,6 +50,7 @@ public:
     void set_flash_state(bool flash_state);
     void set_text_fg(uint8_t fg);
     void set_text_bg(uint8_t bg);
+    void set_dhgr_video7_mix(bool enabled);
 
     /**
      * Decode a full page into RGBA.
