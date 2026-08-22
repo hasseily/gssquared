@@ -22,6 +22,7 @@ enum class video_render_mode_t {
     MONO = 0,
     NTSC,
     RGB,
+    MONO_WHITE,
 };
 
 /**

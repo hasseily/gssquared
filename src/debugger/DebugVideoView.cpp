@@ -26,6 +26,7 @@ const char *DebugVideoView::render_name(video_render_mode_t m) {
         case video_render_mode_t::MONO: return "MONO";
         case video_render_mode_t::NTSC: return "NTSC";
         case video_render_mode_t::RGB: return "RGB";
+        case video_render_mode_t::MONO_WHITE: return "MONO_WHITE";
     }
     return "?";
 }
