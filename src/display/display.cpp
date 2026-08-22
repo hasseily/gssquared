@@ -149,12 +149,31 @@ static void appletini_weave_legacy_rows(display_state_t *ds,
 
 static bool update_display_appletini_legacy(display_state_t *ds,
                                              ScanBuffer *scanbuf) {
-    if (!ds->appletini_video_enabled || ds->display_mode != GRAPHICS_MODE ||
-        ds->display_graphics_mode != HIRES_MODE) {
+    if (!ds->appletini_video_enabled) {
         return false;
     }
 
     uint8_t *ram = ds->mmu->get_memory_base();
+    if (appletini_legacy_load_hold_requested(ram)) {
+        /* A2Li $FF means the guest is replacing the two fields. Repaint the
+           last complete host texture with its original source rectangle;
+           decoding current RAM here would expose a partial load, while
+           falling through would alternate 384- and 192-row geometry. */
+        scanbuf->clear();
+        if (ds->video_system->last_texture != nullptr) {
+            const SDL_FRect source = ds->video_system->last_srcrect;
+            SDL_RenderTexture(ds->video_system->renderer,
+                              ds->video_system->last_texture,
+                              &source, &ds->video_system->target);
+        }
+        return true;
+    }
+
+    if (ds->display_mode != GRAPHICS_MODE ||
+        ds->display_graphics_mode != HIRES_MODE) {
+        return false;
+    }
+
     if (appletini_legacy_paged_mode(ram, true, true) != 1) return false;
 
     const bool dhgr = !ds->f_double_graphics && ds->f_80col;
@@ -1125,6 +1144,7 @@ void init_mb_device_display_common(computer_t *computer, SlotType_t slot, bool c
             set_bordercolor(ds, 0x00); // C034
             display_write_C021(ds, 0xC021, 0x00);
             ds->appletini_video7.reset();
+            appletini_legacy_reset_load_hold(ds->mmu->get_memory_base());
             apply_appletini_mono_state(ds);
         }
         if (ds->computer->platform->id >= PLATFORM_APPLE_IIE) { // iie and GS share these..

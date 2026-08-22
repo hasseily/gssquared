@@ -188,6 +188,32 @@ void test_legacy_and_video7(std::vector<uint8_t> &main) {
     expect(appletini_legacy_paged_mode(main.data(), false, true) == 0,
            "A2Li is graphics-gated");
 
+    main[0x407C] = 0xFF;
+    expect(appletini_legacy_load_hold_requested(main.data()),
+           "signed hires A2Li $FF requests load hold");
+    expect(appletini_legacy_paged_mode(main.data(), true, true) == 0,
+           "A2Li $FF is not a committed paged mode");
+
+    std::memset(main.data() + 0x4078, 0, sizeof(signature));
+    expect(!appletini_legacy_load_hold_requested(main.data()),
+           "unsigned $FF does not request load hold");
+
+    std::memcpy(main.data() + 0x0878, signature, sizeof(signature));
+    main[0x087C] = 0xFF;
+    expect(appletini_legacy_load_hold_requested(main.data()),
+           "signed lores A2Li $FF holds across family changes");
+    main[0x087C] = 0;
+    expect(!appletini_legacy_load_hold_requested(main.data()) &&
+           appletini_legacy_paged_mode(main.data(), true, false) == 0,
+           "A2Li mode zero selects the base legacy renderer");
+
+    main[0x087C] = 0xFF;
+    std::memcpy(main.data() + 0x4078, signature, sizeof(signature));
+    main[0x407C] = 2;
+    appletini_legacy_reset_load_hold(main.data());
+    expect(main[0x087C] == 0 && main[0x407C] == 2,
+           "reset aborts $FF while preserving committed A2Li mode");
+
     AppletiniVideo7State video7;
     video7.access(0xC05E, false, false);
     video7.access(0xC05F, false, false);
