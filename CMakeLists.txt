@@ -736,6 +736,7 @@ if(NOT EMSCRIPTEN)
 
     add_subdirectory(apps/systemconfigtest)
     add_subdirectory(apps/appletinivideotest)
+    add_subdirectory(apps/appletinispeedtest)
 endif()
 
 ################################################################################
