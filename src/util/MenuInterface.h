@@ -18,6 +18,7 @@ enum MenuSpeedID {
 	SPEED_2_8  = 2,
 	SPEED_7_1  = 3,
 	SPEED_14_3 = 4,
+	SPEED_33_3 = 5,
 };
 
 enum MenuMonitorID {

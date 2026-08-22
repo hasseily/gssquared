@@ -85,6 +85,7 @@ protected:
     SelectButton_t *speed_btn_71 = nullptr;
     SelectButton_t *speed_btn_8 = nullptr;
     SelectButton_t *speed_btn_14 = nullptr;
+    SelectButton_t *speed_btn_33 = nullptr;
 
     Container_t *mon_color_con = nullptr;
 
@@ -153,6 +154,7 @@ protected:
         {SPEED_2_8, MHz2_8Button},
         {SPEED_7_1, MHz7_159Button},
         {SPEED_14_3, MHz14_318Button},
+        {SPEED_33_3, MHzInfinityButton},
     }; */
 
     Style_t ModalStyle = {

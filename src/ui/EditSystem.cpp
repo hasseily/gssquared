@@ -210,6 +210,7 @@ EditSystem::EditSystem(video_system_t *vs, AssetAtlas_t *aa)
     speed_con = new Container_t(&ui_ctx, SC);
     speed_con->set_position(30 + layout_dx, 480 + body_dy);
     speed_con->size(320, 65);
+    speed_con->set_padding(1);
     populate_speed_selector(speed_con, &ui_ctx, CB);
     for (size_t i = 0; i < speed_con->count(); i++) {
         Tile_t *tile = speed_con->get_tile(i);

@@ -183,6 +183,7 @@ static void build_menu_bar()
                 { "2.8 MHz",  SPEED_2_8  },
                 { "7.1 MHz",  SPEED_7_1  },
                 { "14.3 MHz", SPEED_14_3 },
+                { "33.3 MHz", SPEED_33_3 },
             };
             for (auto &s : speeds) {
                 bool checked = (cur_speed == s.id);

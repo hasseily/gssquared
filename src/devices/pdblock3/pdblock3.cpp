@@ -1187,5 +1187,13 @@ void init_appletini(computer_t *computer, SlotType_t slot)
     computer->mmu->set_C0XX_write_handler(
         0xC074, { appletini_write_C074, pdblock_d });
     computer->mmu->set_C8xx_handler(slot, map_rom_appletini, pdblock_d);
+
+    // An enabled Appletini boots with its TransWarp-compatible accelerator at
+    // the hardware's full-rate preset.  $C074 can still lock execution to
+    // 1 MHz and release back to this fixed rate.
+    computer->clock->set_clock_mode(CLOCK_33_3MHZ);
     display_enable_appletini_video(computer);
+    auto *display = static_cast<display_state_t *>(
+        computer->get_module_state(MODULE_DISPLAY));
+    if (display != nullptr) display_update_video_scanner(display);
 }

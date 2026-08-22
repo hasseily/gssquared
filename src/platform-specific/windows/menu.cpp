@@ -152,9 +152,9 @@ static void updatePopupState(HMENU popup)
 
     // ── Speed ────────────────────────────────────────────────────────────────
     if (popup == g_speedMenu) {
-        int current = mi->getCurrentSpeed(); // 1..4 matching SPEED_1_0..SPEED_14_3
-        // Items are in order: 1.0(id=100), 2.8(101), 7.1(102), 14.3(103)
-        // tag = id - MENU_SPEED_1_0 + 1  →  1..4
+        int current = mi->getCurrentSpeed(); // 1..5 matching SPEED_1_0..SPEED_33_3
+        // Items are ordered by their sequential MENU_SPEED_* IDs.
+        // tag = id - MENU_SPEED_1_0 + 1  →  1..5
         int n = GetMenuItemCount(g_speedMenu);
         for (int i = 0; i < n; ++i) {
             int tag = static_cast<int>(getItemId(g_speedMenu, i))
@@ -329,6 +329,7 @@ static void dispatchCommand(UINT id)
     case MENU_SPEED_2_8:  mi->setSpeed(SPEED_2_8);  return;
     case MENU_SPEED_7_1:  mi->setSpeed(SPEED_7_1);  return;
     case MENU_SPEED_14_3: mi->setSpeed(SPEED_14_3); return;
+    case MENU_SPEED_33_3: mi->setSpeed(SPEED_33_3); return;
 
     // Monitor
     case MENU_MONITOR_COMPOSITE:  mi->setMonitor(MONITOR_COMPOSITE);  return;
@@ -487,6 +488,7 @@ static void setupMenus()
     AppendMenuW(g_speedMenu, MF_STRING, MENU_SPEED_2_8,  L"2.8 MHz");
     AppendMenuW(g_speedMenu, MF_STRING, MENU_SPEED_7_1,  L"7.1 MHz");
     AppendMenuW(g_speedMenu, MF_STRING, MENU_SPEED_14_3, L"14.3 MHz");
+    AppendMenuW(g_speedMenu, MF_STRING, MENU_SPEED_33_3, L"33.3 MHz");
     AppendMenuW(g_settingsPopup, MF_STRING | MF_POPUP,
                 reinterpret_cast<UINT_PTR>(g_speedMenu), L"Speed");
 

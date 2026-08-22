@@ -391,14 +391,16 @@ OSD::OSD(computer_t *computer, SDL_Renderer *rendererp, SDL_Window *windowp, Slo
     speed_con = new Container_t(&ui_ctx, SC);
     speed_con->set_position(30, 475);
     speed_con->size(320, 65);
+    speed_con->set_padding(1);
     containers.push_back(speed_con);
-    SelectButton_t *speed_btns[5] = {};
+    SelectButton_t *speed_btns[6] = {};
     populate_speed_selector(speed_con, &ui_ctx, CB, speed_btns);
     speed_btn_10 = speed_btns[0];
     speed_btn_28 = speed_btns[1];
     speed_btn_71 = speed_btns[2];
     speed_btn_14 = speed_btns[3];
-    speed_btn_8 = speed_btns[4];
+    speed_btn_33 = speed_btns[4];
+    speed_btn_8 = speed_btns[5];
     speed_btn_10->on_click([this](const SDL_Event&) -> bool {
         this->clock->set_clock_mode(CLOCK_1_024MHZ);
         display_state_t *ds = (display_state_t *)this->computer->get_module_state(MODULE_DISPLAY);
@@ -419,6 +421,12 @@ OSD::OSD(computer_t *computer, SDL_Renderer *rendererp, SDL_Window *windowp, Slo
     });
     speed_btn_14->on_click([this](const SDL_Event&) -> bool {
         this->clock->set_clock_mode(CLOCK_14_3MHZ);
+        display_state_t *ds = (display_state_t *)this->computer->get_module_state(MODULE_DISPLAY);
+        if (ds) display_update_video_scanner(ds);
+        return true;
+    });
+    speed_btn_33->on_click([this](const SDL_Event&) -> bool {
+        this->clock->set_clock_mode(CLOCK_33_3MHZ);
         display_state_t *ds = (display_state_t *)this->computer->get_module_state(MODULE_DISPLAY);
         if (ds) display_update_video_scanner(ds);
         return true;

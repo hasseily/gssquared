@@ -21,6 +21,9 @@ SpeedSelect_t::SpeedSelect_t(UIContext *ctx, const Style_t& initial_style, compu
     add(new SelectButton_t(ctx, MHz2_8Button, CB, CLOCK_2_8MHZ));
     add(new SelectButton_t(ctx, MHz7_159Button, CB, CLOCK_7_159MHZ));
     add(new SelectButton_t(ctx, MHz14_318Button, CB, CLOCK_14_3MHZ));
+    auto *speed_33 = new SelectButton_t(ctx, "33", CB, CLOCK_33_3MHZ);
+    speed_33->size(50, 50);
+    add(speed_33);
     add(new SelectButton_t(ctx, MHzInfinityButton, CB, CLOCK_FREE_RUN));
     set_visible(false);
 

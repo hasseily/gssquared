@@ -24,6 +24,7 @@ protected:
         {SPEED_2_8, MHz2_8Button},
         {SPEED_7_1, MHz7_159Button},
         {SPEED_14_3, MHz14_318Button},
+        {SPEED_33_3, MHzInfinityButton},
     };
     const std::map<int, int> monitor_asset =  {
         {MONITOR_COMPOSITE, ColorDisplayButton},

@@ -191,6 +191,10 @@ computer_t::computer_t(NClockII *clock) {
                 speed_new = CLOCK_14_3MHZ; speed_shift = true;
                 send_clock_mode_message(speed_new);
                 return true;
+            case MENU_SPEED_33_3:
+                speed_new = CLOCK_33_3MHZ; speed_shift = true;
+                send_clock_mode_message(speed_new);
+                return true;
             case MENU_MONITOR_COMPOSITE:
                 video_system->set_display_engine(DM_ENGINE_NTSC);
                 return true;

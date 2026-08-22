@@ -35,6 +35,7 @@ typedef enum {
     CLOCK_2_8MHZ,
     CLOCK_7_159MHZ,
     CLOCK_14_3MHZ,
+    CLOCK_33_3MHZ,
     NUM_CLOCK_MODES,
     INVALID_CLOCK_MODE = -1
 } clock_mode_t;
@@ -76,7 +77,8 @@ protected:
         { 1'020'484, 14318180, 17030, 14, 2, 65, 238944, 16688154, 16688155, 17030, 1020484 },
         { 2'857'370, 14318180,  47684, 5, 2, 182, 238944, 16688154, 16688155, 17030, 1020484 },
         { 7'143'390, 14318180, 119210, 2, 2, 455, 238944, 16688154, 16688155, 17030, 1020484 },
-        { 14'286'780, 14318180, 238420, 1, 2, 912, 238944, 16688154, 16688155, 17030, 1020484 }
+        { 14'286'780, 14318180, 238420, 1, 2, 912, 238944, 16688154, 16688155, 17030, 1020484 },
+        { 33'333'333, 14318180, 556272, 1, 2, 2123, 238944, 16688154, 16688155, 17030, 1020484 }
     };
     
     clock_mode_info_t pal_clock_mode_info[NUM_CLOCK_MODES] = {
@@ -84,7 +86,8 @@ protected:
         { 1'015'657, 14250450,  20280, 14, 2, 65, 284544, 19967369, 19967370, 20280, 1015657 },
         { 2'857'370, 14250450,  56784, 5, 2, 182, 284544, 19967369, 19967370, 20280, 1015657 },
         { 7'143'390,14250450,  141960, 2, 2, 455, 284544, 19967369, 19967370, 20280, 1015657 },
-        { 14'250'450, 14250450, 283920, 1, 2, 910, 284544, 19967369, 19967370, 20280, 1015657 }
+        { 14'250'450, 14250450, 283920, 1, 2, 910, 284544, 19967369, 19967370, 20280, 1015657 },
+        { 33'333'333, 14250450, 665579, 1, 2, 2133, 284544, 19967369, 19967370, 20280, 1015657 }
         //     { 14'250'450,14250450,  284232, 1, 0, 912, 284544, 19967369, 19967370, 14'219'199 } // it was this which didn't work..
     };
     const char *clock_mode_names[NUM_CLOCK_MODES] = {
@@ -92,7 +95,8 @@ protected:
         "1.0205 MHz",
         "2.8 MHz",
         "7.1435 MHz",
-        "14.318 MHz"
+        "14.318 MHz",
+        "33.333 MHz"
     };
 
     uint32_t clock_mode_asset_ids[NUM_CLOCK_MODES] = {
@@ -100,7 +104,8 @@ protected:
         MHz1_0Button,
         MHz2_8Button,
         MHz7_159Button,
-        MHz14_318Button
+        MHz14_318Button,
+        MHzInfinityButton
     };
 
     clock_mode_info_t *system_clock_mode_info = us_clock_mode_info;
@@ -125,6 +130,24 @@ protected:
     // Other modes keep this at 1. Calibrator on computer_t sets N.
     uint32_t cpu_per_14m = 1;
     uint32_t cpu_div = 0;
+
+    // Appletini MAX is not an integer multiple of the Apple 14M clock.
+    // Advance the normal 14.3 MHz timing path at an exact rational rate so
+    // scanner/audio time remains tied to the selected NTSC/PAL video clock.
+    uint64_t fixed_clock_phase = 0;
+    uint64_t fixed_clock_step = 0;
+    uint64_t fixed_clock_limit = 1;
+
+    inline bool fixed_33_waiting_for_base_tick() {
+        fixed_clock_phase += fixed_clock_step;
+        if (fixed_clock_phase < fixed_clock_limit) return true;
+        fixed_clock_phase -= fixed_clock_limit;
+        return false;
+    }
+
+    inline void reset_fixed_clock_phase() {
+        fixed_clock_phase = 0;
+    }
 
     VideoScannerII *video_scanner = nullptr;
     //EventTimer event_vid;
@@ -218,6 +241,7 @@ public:
 
     void set_clock_mode(clock_mode_t mode) {
         clock_mode = mode;
+        reset_fixed_clock_phase();
         if (mode == CLOCK_FREE_RUN) {
             // Same 14.3 physics; cpu_per_14m is owned by the calibrator.
             current = system_clock_mode_info[CLOCK_14_3MHZ];
@@ -225,6 +249,11 @@ public:
             current = system_clock_mode_info[mode];
             cpu_per_14m = 1;
             cpu_div = 0;
+        }
+        if (mode == CLOCK_33_3MHZ) {
+            const clock_mode_info_t &base = system_clock_mode_info[CLOCK_14_3MHZ];
+            fixed_clock_step = uint64_t(base.cycles_per_frame) * base.c14M_per_second;
+            fixed_clock_limit = uint64_t(current.hz_rate) * base.c14M_per_frame;
         }
     }
 
@@ -280,7 +309,9 @@ public:
     // When cpu_per_14m > 1 (ludicrous): N CPU cycles share one 14M tick / scanner step.
     inline virtual void slow_incr_cycles() override {
         cycles++;
-        if (cpu_per_14m > 1) {
+        if (clock_mode == CLOCK_33_3MHZ) {
+            if (fixed_33_waiting_for_base_tick()) return;
+        } else if (cpu_per_14m > 1) {
             if (++cpu_div < cpu_per_14m) {
                 return;
             }
@@ -349,6 +380,12 @@ protected:
         if (sync_cycle) {
             // Slow accesses stay 1 MHz; do not apply ludicrous multiplier.
             cpu_div = 0;
+            reset_fixed_clock_phase();
+        } else if (clock_mode == CLOCK_33_3MHZ) {
+            if (fixed_33_waiting_for_base_tick()) {
+                cycle_type = CYCLE_TYPE_FAST;
+                return;
+            }
         } else if (cpu_per_14m > 1) {
             if (++cpu_div < cpu_per_14m) {
                 cycle_type = CYCLE_TYPE_FAST;

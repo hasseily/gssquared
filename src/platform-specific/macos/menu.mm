@@ -112,6 +112,7 @@ I don't know what all these words mean exactly. But I confirmed it does seem to 
 - (void)speed2_8:(id)sender;
 - (void)speed7_1:(id)sender;
 - (void)speed14_3:(id)sender;
+- (void)speed33_3:(id)sender;
 - (void)toggleSleepMode:(id)sender;
 - (void)toggleAudioDecorrelation:(id)sender;
 - (void)toggleRightMouseAccel:(id)sender;
@@ -217,6 +218,7 @@ I don't know what all these words mean exactly. But I confirmed it does seem to 
 - (void)speed2_8:(id)sender  { getMenuInterface()->setSpeed(SPEED_2_8); (void)sender; }
 - (void)speed7_1:(id)sender  { getMenuInterface()->setSpeed(SPEED_7_1); (void)sender; }
 - (void)speed14_3:(id)sender { getMenuInterface()->setSpeed(SPEED_14_3); (void)sender; }
+- (void)speed33_3:(id)sender { getMenuInterface()->setSpeed(SPEED_33_3); (void)sender; }
 
 - (void)toggleSleepMode:(id)sender { getMenuInterface()->toggleSleepMode(); (void)sender; }
 - (void)toggleAudioDecorrelation:(id)sender { getMenuInterface()->toggleAudioDecorrelation(); (void)sender; }
@@ -571,6 +573,7 @@ static void setupMenus(void) {
 		{ @"2.8 MHz",  @selector(speed2_8:),  2 },
 		{ @"7.1 MHz",  @selector(speed7_1:),  3 },
 		{ @"14.3 MHz", @selector(speed14_3:), 4 },
+		{ @"33.3 MHz", @selector(speed33_3:), 5 },
 	};
 	for (auto &si : speedItems) {
 		NSMenuItem *item = [[[NSMenuItem alloc]

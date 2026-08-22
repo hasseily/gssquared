@@ -29,6 +29,7 @@ void MenuInterface::setSpeed(int speed_id) {
 		case SPEED_2_8:  pushMenuEvent(MENU_SPEED_2_8); break;
 		case SPEED_7_1:  pushMenuEvent(MENU_SPEED_7_1); break;
 		case SPEED_14_3: pushMenuEvent(MENU_SPEED_14_3); break;
+		case SPEED_33_3: pushMenuEvent(MENU_SPEED_33_3); break;
 	}
 }
 

@@ -15,7 +15,7 @@ NOTE: Some platforms "eat" keystrokes intended for the Apple II window. E.g. Con
 | F5 | All | Toggle between new display rendering (NTSC accurate) and old display rendering |
 | Ctrl + F5 | All | Toggle between linear interpolation display rendering (slight blurring) and nearest neighbor display rendering (sharper) |
 | F6 | All | Toggle between Joystick, Joyport, Mouse-emulated Joystick modes |
-| F9 | All | Increase speed - 1MHz, 2.8MHz, 7.1MHz, 14.3MHz, and Ludicrous Speed |
+| F9 | All | Increase speed - 1MHz, 2.8MHz, 7.1MHz, 14.3MHz, 33.3MHz, and Ludicrous Speed |
 | Shift - F9 | All | Decrease speed |
 | Ctrl + F12 | MacOS,Windows | Reset |
 | Ctrl + BREAK | Linux | Reset (sometimes, this key is labelled Pause) |
