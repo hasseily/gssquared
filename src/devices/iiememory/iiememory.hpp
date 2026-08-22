@@ -1,6 +1,8 @@
 #pragma once
 
+#include <cstddef>
 #include <cstdint>
+#include <vector>
 
 #include "computer.hpp"
 #include "display/display.hpp"
@@ -14,6 +16,15 @@ struct iiememory_state_t {
     uint8_t *ram;
     MMU_II *mmu;
     MessageBus *mbus;
+
+    // Appletini supplies 128 selectable 64K auxiliary banks. Bank 0 is the
+    // IIe's existing auxiliary RAM so video always continues to fetch from it;
+    // banks 1-127 live in this additional allocation.
+    static constexpr std::size_t APPLETINI_RAMWORKS_BANK_SIZE = 64 * 1024;
+    static constexpr std::size_t APPLETINI_RAMWORKS_BANK_COUNT = 128;
+    std::vector<uint8_t> appletini_ramworks_extra_banks;
+    uint8_t appletini_ramworks_bank = 0;
+    bool appletini_ramworks_enabled = false;
 
     bool f_80store = false;
     bool f_ramrd = false;
@@ -47,3 +58,4 @@ struct iiememory_state_t {
 };
 
 void init_iiememory(computer_t *computer, SlotType_t slot);
+bool iiememory_enable_appletini_ramworks(computer_t *computer);
