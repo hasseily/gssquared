@@ -29,6 +29,7 @@ const char *speed_button_label(int clock_mode) {
         case CLOCK_2_8MHZ:   return "2.8";
         case CLOCK_7_159MHZ: return "7.1";
         case CLOCK_14_3MHZ:  return "14.3";
+        case CLOCK_33_3MHZ:  return "33.3";
         default:             return "1.0";
     }
 }

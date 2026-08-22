@@ -464,6 +464,7 @@ const char* speed_name(clock_mode_t mode) {
         case CLOCK_2_8MHZ: return "2.8mhz";
         case CLOCK_7_159MHZ: return "7.159mhz";
         case CLOCK_14_3MHZ: return "14.3mhz";
+        case CLOCK_33_3MHZ: return "33.3mhz";
         case CLOCK_FREE_RUN: return "ludicrous";
         default: return "unknown";
     }
@@ -489,6 +490,7 @@ std::optional<clock_mode_t> parse_speed(const std::string& value, std::string& e
     if (lower == "2.8mhz") return CLOCK_2_8MHZ;
     if (lower == "7.159mhz") return CLOCK_7_159MHZ;
     if (lower == "14.3mhz") return CLOCK_14_3MHZ;
+    if (lower == "33.3mhz") return CLOCK_33_3MHZ;
     if (lower == "ludicrous") return CLOCK_FREE_RUN;
     error_out = "Unknown speed: " + value;
     return std::nullopt;

@@ -457,6 +457,7 @@ bool SystemConfig::load_settings(const std::string& path, std::string& error_out
                         {2857368, CLOCK_2_8MHZ},
                         {7159090, CLOCK_7_159MHZ},
                         {14318180, CLOCK_14_3MHZ},
+                        {33333333, CLOCK_33_3MHZ},
                     };
                     long best_diff = std::labs(hz - table[0].hz);
                     clock_mode_t best = table[0].mode;

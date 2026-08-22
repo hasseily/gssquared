@@ -156,11 +156,12 @@ String enum → `clock_mode_t` (`src/NClock.hpp`). This is **host** emulator spe
 | `"2.8mhz"` | `CLOCK_2_8MHZ` |
 | `"7.159mhz"` | `CLOCK_7_159MHZ` |
 | `"14.3mhz"` | `CLOCK_14_3MHZ` |
+| `"33.3mhz"` | `CLOCK_33_3MHZ` (Appletini MAX) |
 | `"ludicrous"` | `CLOCK_FREE_RUN` |
 
-If omitted, use `platform_info.default_clock_mode` (1.024 MHz on II/IIe, 2.8 MHz on IIgs). Runtime F9 / OSD / Insert changes are session-only and are not written back on quit.
+If omitted, use `platform_info.default_clock_mode` (1.024 MHz on II/IIe, 2.8 MHz on IIgs); an Appletini card then boots at 33.3 MHz. Runtime F9 / OSD / Insert changes are session-only and are not written back on quit.
 
-Neil `machine.speed` (Hz, e.g. `2800000`) maps to the nearest of the four fixed rates; `0` maps to ludicrous.
+Neil `machine.speed` (Hz, e.g. `2800000`) maps to the nearest of the five fixed rates; `0` maps to ludicrous.
 
 ---
 

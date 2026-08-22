@@ -26,18 +26,19 @@ Style_t config_selector_button_style() {
 
 void populate_speed_selector(Container_t *container, UIContext *ctx, const Style_t& button_style,
                              SelectButton_t **out_btns) {
-    const clock_mode_t modes[4] = {
-        CLOCK_1_024MHZ, CLOCK_2_8MHZ, CLOCK_7_159MHZ, CLOCK_14_3MHZ,
+    const clock_mode_t modes[5] = {
+        CLOCK_1_024MHZ, CLOCK_2_8MHZ, CLOCK_7_159MHZ, CLOCK_14_3MHZ, CLOCK_33_3MHZ,
     };
-    SelectButton_t *btns[5] = {};
-    for (int i = 0; i < 4; i++) {
+    SelectButton_t *btns[6] = {};
+    for (int i = 0; i < 5; i++) {
         FaceButton *face = new FaceButton(ctx, speed_button_label(modes[i]), button_style, modes[i]);
         face->set_accent(0x5C78FFFF);
-        face->size(56, 56);
+        // Six buttons share the 320 px panels (padding 1), so 50 px each.
+        face->size(50, 50);
         btns[i] = face;
     }
-    btns[4] = new SelectButton_t(ctx, MHzInfinityButton, button_style, CLOCK_FREE_RUN);
-    for (int i = 0; i < 5; i++) {
+    btns[5] = new SelectButton_t(ctx, MHzInfinityButton, button_style, CLOCK_FREE_RUN);
+    for (int i = 0; i < 6; i++) {
         container->add(btns[i]);
         if (out_btns) out_btns[i] = btns[i];
     }

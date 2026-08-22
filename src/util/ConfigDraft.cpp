@@ -54,9 +54,14 @@ void push_port(std::vector<connection_port_spec_t>& out, int slot, const std::st
 
 void seed_speed_display(SystemConfig_t& config) {
     if (config.clock_mode == INVALID_CLOCK_MODE) {
-        config.clock_mode = platform_is_iigs(config.platform_id)
-                                ? CLOCK_2_8MHZ
-                                : CLOCK_1_024MHZ;
+        // An Appletini in slot 7 boots at its 33.3 MHz preset (init_appletini).
+        if (config.slot_devices[SLOT_7] == DEVICE_ID_APPLETINI) {
+            config.clock_mode = CLOCK_33_3MHZ;
+        } else {
+            config.clock_mode = platform_is_iigs(config.platform_id)
+                                    ? CLOCK_2_8MHZ
+                                    : CLOCK_1_024MHZ;
+        }
     }
     if (config.display_monitor == DISPLAY_MONITOR_UNSET) {
         config.display_monitor = platform_is_iigs(config.platform_id)

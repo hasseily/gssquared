@@ -17,7 +17,7 @@ On the Mac, disable “Pressing Option 5 Times enables Mouse Keys” and Dictati
 | F5 | All | Toggle pixel-blur (analog upscale) and rectangular (square) scaling |
 | F6 | All | Cycle Joystick, Joyport, and mouse-emulated joystick modes |
 | F7 | All | Toggle CRT Shader (when the GPU shader is available) |
-| F9 | All | Increase speed — 1 MHz, 2.8 MHz, 7.1 MHz, 14.3 MHz, and Ludicrous Speed |
+| F9 | All | Increase speed — 1 MHz, 2.8 MHz, 7.1 MHz, 14.3 MHz, 33.3 MHz, and Ludicrous Speed |
 | Shift - F9 | All | Decrease speed |
 | F10 | All | Open/close the debugger window |
 | PrintScreen | All | Copy Screen to the host clipboard |

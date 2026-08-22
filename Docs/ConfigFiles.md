@@ -84,7 +84,7 @@ These go at the start of the file (before any `[[cards]]` blocks).
 | `description` | No | Subtitle or tooltip text. |
 | `clock` | No | `"ntsc"` (default) or `"pal"`. Not valid on IIgs. |
 | `scanner` | No | Video timing. Usually omitted — GS2 picks a sensible default from `platform` and `clock`. |
-| `speed` | No | Host CPU speed at boot: `"1.024mhz"`, `"2.8mhz"`, `"7.159mhz"`, `"14.3mhz"`, `"ludicrous"`. Omitted: 1.024 MHz (II/IIe) or 2.8 MHz (IIgs). F9 / OSD changes are session-only. |
+| `speed` | No | Host CPU speed at boot: `"1.024mhz"`, `"2.8mhz"`, `"7.159mhz"`, `"14.3mhz"`, `"33.3mhz"`, `"ludicrous"`. Omitted: 1.024 MHz (II/IIe) or 2.8 MHz (IIgs); 33.3 MHz with an Appletini card. F9 / OSD changes are session-only. |
 | `display` | No | Monitor: `"composite"`, `"rgb"`, `"green"`, `"amber"`, `"white"`. Omitted: composite, or RGB on IIgs. |
 
 ### Platforms

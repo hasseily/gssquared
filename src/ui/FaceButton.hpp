@@ -31,5 +31,5 @@ private:
     void draw_face();
 };
 
-/** Short legend for a numeric clock mode ("1.0", "2.8", "7.1", "14.3"). */
+/** Short legend for a numeric clock mode ("1.0", "2.8", "7.1", "14.3", "33.3"). */
 const char *speed_button_label(int clock_mode);
