@@ -12,6 +12,7 @@ struct AppletiniVideo7State {
 
     void reset();
     void access(uint16_t address, bool mixed, bool col80);
+    bool mixed140() const { return mode == 2; }
     bool mono560() const { return mode == 3; }
 };
 

@@ -1,3 +1,5 @@
+#include <algorithm>
+#include <array>
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
@@ -6,6 +8,7 @@
 #include <string>
 #include <vector>
 
+#include "devices/displaypp/generate/AppleII.hpp"
 #include "devices/displaypp/generate/AppletiniVideo.hpp"
 
 namespace {
@@ -223,6 +226,124 @@ void test_legacy_and_video7(std::vector<uint8_t> &main) {
     expect(video7.mode == 3 && video7.mono560(), "Video-7 MONO560 sequence");
     video7.access(0xC05E, true, false);
     expect(video7.sequence == 0, "Video-7 mixed-mode abort");
+
+    AppletiniVideo7State mix;
+    expect(!mix.mixed140() && !mix.mono560(),
+           "Video-7 state 00 remains normal color");
+    mix.access(0xC05E, false, false);
+    mix.access(0xC05F, false, false); // !80COL clocks mode bit 1 = 1
+    mix.access(0xC05E, false, true);
+    mix.access(0xC05F, false, true);  // !80COL clocks mode bit 0 = 0
+    mix.access(0xC05E, false, true);
+    expect(mix.mode == 2 && mix.mixed140() && !mix.mono560(),
+           "Video-7 MIX/COL140M sequence");
+}
+
+void test_video7_mix_selector() {
+    uint8_t main_row[40];
+    uint8_t aux_row[40];
+    std::fill(std::begin(main_row), std::end(main_row), 0x80);
+    std::fill(std::begin(aux_row), std::end(aux_row), 0x80);
+
+    /* AUX[0], MAIN[0], AUX[1], MAIN[1] select 8+8+8+4 dots. */
+    aux_row[0] = 0x00;
+    main_row[0] = 0x80;
+    aux_row[1] = 0x00;
+    main_row[1] = 0x80;
+    for (uint16_t dot = 0; dot < 28; ++dot) {
+        const bool wanted = dot < 8 || (dot >= 16 && dot < 24);
+        expect(appleii_dhgr_video7_mix_is_mono(main_row, aux_row, dot) == wanted,
+               "Video-7 MIX selector follows 8+8+8+4 alignment");
+    }
+
+    aux_row[2] = 0x00;
+    expect(appleii_dhgr_video7_mix_is_mono(main_row, aux_row, 28) &&
+           appleii_dhgr_video7_mix_is_mono(main_row, aux_row, 35) &&
+           !appleii_dhgr_video7_mix_is_mono(main_row, aux_row, 36),
+           "Video-7 MIX selector advances to the next byte group");
+    expect(!appleii_dhgr_video7_mix_is_mono(nullptr, aux_row, 0) &&
+           !appleii_dhgr_video7_mix_is_mono(main_row, nullptr, 0) &&
+           !appleii_dhgr_video7_mix_is_mono(main_row, aux_row, 560),
+           "Video-7 MIX selector rejects invalid input");
+}
+
+void test_video7_mix_render() {
+    SDL_Surface *surface = SDL_CreateSurface(567, 192, PIXEL_FORMAT);
+    expect(surface != nullptr, "create Video-7 MIX test surface");
+    if (surface == nullptr) return;
+    SDL_Renderer *renderer = SDL_CreateSoftwareRenderer(surface);
+    expect(renderer != nullptr, "create Video-7 MIX software renderer");
+    if (renderer == nullptr) {
+        SDL_DestroySurface(surface);
+        return;
+    }
+
+    std::vector<uint8_t> main(8192, 0xAA);
+    std::vector<uint8_t> aux(8192, 0x55);
+    AppleII_View view(nullptr);
+    std::array<RGBA_t, 28> color;
+    std::array<RGBA_t, 28> mixed;
+    std::array<RGBA_t, 28> ntsc_color;
+    std::array<RGBA_t, 28> ntsc_mixed;
+    std::array<RGBA_t, 28> restored;
+    std::array<RGBA_t, 28> mono560;
+    {
+        Frame560RGBA frame(567, 192, renderer, PIXEL_FORMAT);
+        auto render = [&](bool enable, video_render_mode_t render_mode,
+                          std::array<RGBA_t, 28> &pixels) {
+            view.set_dhgr_video7_mix(enable);
+            frame.open();
+            view.generate(video_decode_mode_t::DHGR, render_mode,
+                          main.data(), aux.data(), &frame, nullptr);
+            frame.close();
+
+            void *data = nullptr;
+            int pitch = 0;
+            const bool locked = SDL_LockTexture(frame.get_texture(), nullptr,
+                                                &data, &pitch);
+            expect(locked && pitch >= 567 * static_cast<int>(sizeof(RGBA_t)),
+                   "lock Video-7 MIX rendered texture");
+            if (locked) {
+                const auto *row = static_cast<const RGBA_t *>(data);
+                std::copy_n(row, pixels.size(), pixels.begin());
+                SDL_UnlockTexture(frame.get_texture());
+            }
+        };
+        render(false, video_render_mode_t::RGB, color);
+        render(true, video_render_mode_t::RGB, mixed);
+        render(false, video_render_mode_t::NTSC, ntsc_color);
+        render(true, video_render_mode_t::NTSC, ntsc_mixed);
+        render(false, video_render_mode_t::RGB, restored);
+        render(false, video_render_mode_t::MONO_WHITE, mono560);
+    }
+
+    auto verify = [&](const std::array<RGBA_t, 28> &baseline,
+                      const std::array<RGBA_t, 28> &result) {
+        int changed_mono = 0;
+        for (uint16_t dot = 0; dot < 28; ++dot) {
+            const bool mono = dot < 8 || (dot >= 16 && dot < 24);
+            if (mono) {
+                expect(result[dot].r == result[dot].g &&
+                       result[dot].g == result[dot].b,
+                       "Video-7 MIX renders selected dots in neutral monochrome");
+                if (result[dot] != baseline[dot]) ++changed_mono;
+            } else {
+                expect(result[dot] == baseline[dot],
+                       "Video-7 MIX preserves color-selected dots");
+            }
+        }
+        expect(changed_mono != 0, "Video-7 MIX changes selected color pixels");
+    };
+    verify(color, mixed);
+    verify(ntsc_color, ntsc_mixed);
+    expect(restored == color, "disabling Video-7 MIX restores normal color");
+    for (const RGBA_t pixel : mono560) {
+        expect(pixel.r == pixel.g && pixel.g == pixel.b,
+               "Video-7 MONO560 remains global white monochrome");
+    }
+
+    SDL_DestroyRenderer(renderer);
+    SDL_DestroySurface(surface);
 }
 
 int render_file(const char *input_path, const char *output_path) {
@@ -275,6 +396,8 @@ int main(int argc, char **argv) {
     test_shr_interlace(main, aux, output);
     test_shr3200(main, aux, output);
     test_legacy_and_video7(main);
+    test_video7_mix_selector();
+    test_video7_mix_render();
 
     if (failures != 0) {
         std::fprintf(stderr, "%d Appletini video tests failed\n", failures);

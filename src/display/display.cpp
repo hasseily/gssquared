@@ -122,6 +122,8 @@ static void appletini_generate_legacy_fields(display_state_t *ds,
     ds->appletini_page_renderer->set_flash_state(ds->flash_state);
     ds->appletini_page_renderer->set_text_fg(ds->text_color >> 4);
     ds->appletini_page_renderer->set_text_bg(ds->text_color & 0x0F);
+    ds->appletini_page_renderer->set_dhgr_video7_mix(
+        mode == video_decode_mode_t::DHGR && ds->appletini_video7.mixed140());
 
     ds->appletini_field_a->open();
     ds->appletini_page_renderer->generate(

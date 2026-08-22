@@ -19,6 +19,7 @@ static constexpr RGBA_t kBlack = RGBA_t::make(0x00, 0x00, 0x00, 0xFF);
 static constexpr RGBA_t kGreen = RGBA_t::make(0x00, 0xFF, 0x00, 0xFF);
 static constexpr RGBA_t kWhite = RGBA_t::make(0xFF, 0xFF, 0xFF, 0xFF);
 static constexpr RGBA_t kPadRgb = RGBA_t::make(0x00, 0x00, 0x00, 0x00);
+static constexpr uint8_t kVideo7MonoDot = 0x80;
 
 alignas(64) static constexpr uint32_t kTextMap[24] = {
     0x0000, 0x0080, 0x0100, 0x0180, 0x0200, 0x0280, 0x0300, 0x0380,
@@ -57,6 +58,23 @@ static bool gsrgb_hires(video_decode_mode_t mode) {
            mode == video_decode_mode_t::DHGR;
 }
 
+bool appleii_dhgr_video7_mix_is_mono(const uint8_t *main_row,
+                                     const uint8_t *aux_row,
+                                     uint16_t dot) {
+    if (main_row == nullptr || aux_row == nullptr || dot >= kDots) return false;
+
+    const uint16_t pair_dot = static_cast<uint16_t>(dot % 28);
+    const uint16_t pair = static_cast<uint16_t>(dot / 28);
+    const uint16_t mode_byte = pair_dot < 8 ? 0 :
+                               pair_dot < 16 ? 1 :
+                               pair_dot < 24 ? 2 : 3;
+    const uint16_t byte_index = static_cast<uint16_t>(pair * 4 + mode_byte);
+    const uint8_t value = (byte_index & 1) != 0
+        ? main_row[byte_index >> 1]
+        : aux_row[byte_index >> 1];
+    return (value & 0x80) == 0;
+}
+
 struct AppleII_Context {
     CharRom *char_rom = nullptr;
     bool flash_state = false;
@@ -64,6 +82,7 @@ struct AppleII_Context {
     bool normal_alt = false;
     uint8_t text_fg = 0x0F;
     uint8_t text_bg = 0x00;
+    bool dhgr_video7_mix = false;
     uint8_t hires40Font[2 * kCharNum * kCharWidth];
 
     explicit AppleII_Context(CharRom *rom) : char_rom(rom) { buildHires40Font(true); }
@@ -169,6 +188,13 @@ struct AppleII_Context {
             for (int i = 0; i < 7; i++) {
                 *p++ = (byteM & 0x01) ? 1 : 0;
                 byteM >>= 1;
+            }
+        }
+        if (dhgr_video7_mix) {
+            for (uint16_t dot = 0; dot < kDots; ++dot) {
+                if (appleii_dhgr_video7_mix_is_mono(m, a, dot)) {
+                    dots[dot] |= kVideo7MonoDot;
+                }
             }
         }
     }
@@ -291,7 +317,8 @@ class AppleII_Composite {
         }
     }
 
-    void emit_ntsc_color(Frame560RGBA *out, const uint8_t *dots, uint8_t phase_offset) {
+    void emit_ntsc_color(Frame560RGBA *out, const uint8_t *dots,
+                         uint8_t phase_offset, bool video7_mix) {
         if (phase_offset == 0) {
             pad_line(out, kBlack, 7);
         }
@@ -308,7 +335,11 @@ class AppleII_Composite {
                 bits |= (1u << (NUM_TAPS * 2));
             }
             uint32_t phase = (phase_offset + x) % 4;
-            out->push(g_hgr_LUT[phase][bits]);
+            if (video7_mix && (dots[x] & kVideo7MonoDot) != 0) {
+                out->push((dots[x] & 1) != 0 ? kWhite : kBlack);
+            } else {
+                out->push(g_hgr_LUT[phase][bits]);
+            }
         }
         if (phase_offset == 1) {
             pad_line(out, kBlack, 7);
@@ -332,6 +363,8 @@ public:
         const uint8_t phase = phase_offset_for(mode);
         const bool ntsc = render == video_render_mode_t::NTSC;
         const bool color = ntsc && ntsc_colorburst(mode);
+        const bool video7_mix = mode == video_decode_mode_t::DHGR &&
+                                ctx_.dhgr_video7_mix;
         const RGBA_t on = render == video_render_mode_t::MONO ? kGreen : kWhite;
 
         uint8_t dots[kDots];
@@ -340,7 +373,7 @@ public:
                 ctx_.expand_line(mode, main, aux, lg, y, dots);
                 out->set_line(lg * 8 + y);
                 if (color) {
-                    emit_ntsc_color(out, dots, phase);
+                    emit_ntsc_color(out, dots, phase, video7_mix);
                 } else {
                     emit_mono(out, dots, phase, on);
                 }
@@ -355,21 +388,28 @@ class AppleII_GSRGB {
     RGBA_t hgr_lut_[16];
     RGBA_t txt_lut_[16];
 
-    void emit_hires_pixels(uint32_t shiftreg, Frame560RGBA *out) {
+    void emit_hires_pixels(uint32_t shiftreg, Frame560RGBA *out,
+                           const uint8_t *dots, uint16_t output_x,
+                           bool video7_mix) {
         uint16_t pixels = lut_[shiftreg & 0x7FF];
-        out->push(hgr_lut_[(pixels >> 12) & 0xF]);
-        out->push(hgr_lut_[(pixels >> 8) & 0xF]);
-        out->push(hgr_lut_[(pixels >> 4) & 0xF]);
-        out->push(hgr_lut_[pixels & 0xF]);
+        for (uint16_t i = 0; i < 4; ++i) {
+            RGBA_t color = hgr_lut_[(pixels >> (12 - i * 4)) & 0xF];
+            if (video7_mix && (dots[output_x + i] & kVideo7MonoDot) != 0) {
+                color = (dots[output_x + i] & 1) != 0 ? kWhite : kBlack;
+            }
+            out->push(color);
+        }
     }
 
-    void emit_hires_line(Frame560RGBA *out, const uint8_t *dots, uint8_t phase_offset) {
+    void emit_hires_line(Frame560RGBA *out, const uint8_t *dots,
+                         uint8_t phase_offset, bool video7_mix) {
         if (phase_offset == 0) {
             pad_line(out, kPadRgb, 7);
         }
         uint32_t shiftreg = 0;
         uint16_t remaining = kDots;
         uint16_t idx = 0;
+        uint16_t output_x = 0;
         for (int i = 0; i < 3 - phase_offset; i++) {
             shiftreg = (shiftreg << 1) | (dots[idx++] & 1);
             remaining--;
@@ -379,7 +419,8 @@ class AppleII_GSRGB {
                 shiftreg = (shiftreg << 1) | (dots[idx++] & 1);
             }
             remaining -= 4;
-            emit_hires_pixels(shiftreg, out);
+            emit_hires_pixels(shiftreg, out, dots, output_x, video7_mix);
+            output_x += 4;
         }
         int cnt = remaining;
         for (int i = 0; i < cnt; i++) {
@@ -388,7 +429,7 @@ class AppleII_GSRGB {
         for (int i = 0; i < 4 - cnt; i++) {
             shiftreg = (shiftreg << 1) | 0;
         }
-        emit_hires_pixels(shiftreg, out);
+        emit_hires_pixels(shiftreg, out, dots, output_x, video7_mix);
         if (phase_offset == 1) {
             pad_line(out, kPadRgb, 7);
         }
@@ -427,13 +468,15 @@ public:
 
         const uint8_t phase = phase_offset_for(mode);
         const bool hires = gsrgb_hires(mode);
+        const bool video7_mix = mode == video_decode_mode_t::DHGR &&
+                                ctx_.dhgr_video7_mix;
         uint8_t dots[kDots];
         for (uint16_t lg = 0; lg < 24; lg++) {
             for (uint16_t y = 0; y < 8; y++) {
                 ctx_.expand_line(mode, main, aux, lg, y, dots);
                 out->set_line(lg * 8 + y);
                 if (hires) {
-                    emit_hires_line(out, dots, phase);
+                    emit_hires_line(out, dots, phase, video7_mix);
                 } else {
                     emit_text_line(out, dots, phase);
                 }
@@ -524,6 +567,10 @@ void AppleII_View::set_flash_state(bool flash_state) { impl_->ctx.flash_state = 
 void AppleII_View::set_text_fg(uint8_t fg) { impl_->ctx.text_fg = fg & 0x0F; }
 
 void AppleII_View::set_text_bg(uint8_t bg) { impl_->ctx.text_bg = bg & 0x0F; }
+
+void AppleII_View::set_dhgr_video7_mix(bool enabled) {
+    impl_->ctx.dhgr_video7_mix = enabled;
+}
 
 void AppleII_View::generate(video_decode_mode_t decode, video_render_mode_t render,
                             const uint8_t *main, const uint8_t *aux, Frame560RGBA *out560,
