@@ -371,9 +371,40 @@ handshaking Port A register, or explicitly writing IFR.CA1, clears the flag.
 Direct D7 polling is a Phasor-native feature and is not exposed by the
 Mockingboard card.
 
-The current audio backend is a lightweight three-formant synthesizer. It
-preserves the SSI register timing and control roles while keeping the audio
-implementation independent from a future full Phasor mode.
+The audio backend is a real-time formant synthesizer; it does not play phoneme
+samples. SSI phonemes select explicit targets in the SC-01A-compatible
+four-bit vocal-tract parameter space using the same analog topology as
+Appletini. Every SSI-263 phoneme and allophone has a target rather than falling
+through the old incomplete inverse SC-01 table. SSI-specific fricative splits
+and excitation levels keep S on a reduced high-frequency branch, route the
+quieter TH through its lower F2 branch, and use the DT tract row for T's lower,
+single stop release; SC-01A's
+raw S/TH/T rows would otherwise collapse all three onto the same `FC=0` noise
+spectrum. SSI
+HV/HVC/HFC/HN are stateful holds: they freeze the instantaneous interpolated
+tract state, not just the preceding ROM target. In particular, HN preserves
+the M/N/NG nasal articulation already reached instead of falling through to
+silence or continuing to converge on the nasal's endpoint. The die-derived ROM
+parameters are interpolated at the chip control cadences, drive separate
+glottal and 15-bit LFSR noise sources, and pass through the complete F1, F2
+voice/noise, F3, F4, closure, and output filter path. Voiced phones select the
+glottal source; unvoiced phones select continuous pseudo-random excitation as
+specified by the SSI-263A architecture. The noise is not gated by glottal
+pitch, which would turn S into a periodic buzz and split a P/K release into
+several false bursts. The ROM decode and
+switched-capacitor filter equations follow
+Olivier Galibert's `vsim`/MAME SC-01A work, adjusted to GSSquared's 44.1 kHz
+audio rate. The standard-filter implementation algebraically cancels the
+common `(1 + z^-1)` factor from the bilinear numerator and denominator; this
+removes a hidden neutral Nyquist pole that coefficient transitions could
+otherwise excite into accumulating alternating beeps. SSI rate, duration,
+pitch, transitioned inflection, articulation,
+amplitude, A/!R, and CA1 completion controls remain live. FILFREQ retunes all
+seven switched-capacitor filter stages from the SSI-263 relation
+`XCK / (2 * (256 - FF))`; it is independent of pitch and speech timing, while
+the hardware-compatible `$FF` setting silences output.
+CTTRAMP D7 power-down mutes and suppresses A/!R without aborting the active
+formant timing state; releasing D7 restarts the currently latched phoneme.
 
 It seems like you can write to both AYs at the same time. So each 6522 controls a left/right pair? Interesting.
 Unclear what C0CD is.
