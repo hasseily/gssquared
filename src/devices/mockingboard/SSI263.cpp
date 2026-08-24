@@ -56,7 +56,11 @@ constexpr uint32_t kFilterTailSamples = 512;
 constexpr double kOutputSoftKnee = 0.25;
 constexpr double kOutputSoftRatio = 0.25;
 constexpr double kOutputAnalogRail = 0.95;
-constexpr double kOutputSlewStep = 3000.0 / 32768.0;
+// De-clicks mute/unmute and power-down steps without shaving the 4-8 kHz
+// fricative band: 9000/32768 per 44.1 kHz sample still spreads a full-scale
+// step across several samples, but an S-band component stays un-slewed up to
+// roughly 0.25 amplitude where the old 3000 step audibly triangulated it.
+constexpr double kOutputSlewStep = 9000.0 / 32768.0;
 
 double filterClockHz(uint8_t filter_frequency) {
     // SSI-263A data sheet: ffilter = XCK / (2 * (256 - FF)).  $FF is
@@ -445,20 +449,36 @@ struct FormantCore {
         if (!hold_parameters) {
             sc01_phone = kSsi263ToSc01a[requested_phone];
             phone = decodePhone(sc01_phone);
-            // SC-01A's S, TH, and T rows all use FC=0 and therefore collapse
-            // onto the same high-only noise path. SSI-263 reference speech
-            // keeps S sibilant but gives TH/T progressively lower spectra.
-            // Retain the decoded formants, durations, and envelopes while
-            // applying the SSI-compatible four-bit fricative split. T uses
-            // the SC-01A DT row above because it provides the corresponding
-            // low-frequency stop target and single release envelope.
-            if (requested_phone == 0x30) {
-                phone.fc = 8;
-                phone.fa = 6;
-            } else if (requested_phone == 0x36) {
-                phone.fc = 15;
-                phone.fa = 1;
+            // The SC-01A S row keeps FC=0, which routes all of S through the
+            // broadband high noise path -- that is the correct sibilant
+            // spectrum, so S is left exactly as decoded. TH is a soft,
+            // diffuse dental fricative: nearly all direct high noise like S,
+            // but at a fraction of S's drive and with a trace of F2 body so
+            // it stays duller than S. T uses the SC-01A DT row for its stop
+            // timing, but DT's FC=14 makes the release thump at F2 instead
+            // of clicking; move most of the burst onto the high path and
+            // raise FA so the short release stays audible.
+            if (requested_phone == 0x36) {
+                // FC=5 splits TH between the F2-body path and the direct
+                // high path. With FC at 1 nearly everything took the same
+                // broadband high path as S, and TH was just a quiet S; the
+                // dental TH is diffuse, roughly half body and half hiss.
+                phone.fc = 5;
+                phone.fa = 3;
+            } else if (requested_phone == 0x28) {
+                phone.fc = 4;
+                phone.fa = 12;
             }
+            // SSI-263A data sheet: Phoneme Duration = (4 - D) frames of
+            // 4096 * (16 - R) XCK cycles -- the SAME length for every
+            // phoneme; software repeats a phoneme when it wants it held.
+            // The SC-01A per-phoneme ROM durations (74 ms for B, 244 ms
+            // for AH at the same registers) belong to the other chip, and
+            // using them rushes short-row spans like the "...ABLE" of
+            // "PROVABLE" while stretching vowels. 31 yields a 125-count
+            // tick limit, within 2% of the data sheet's 98.3 ms at
+            // D=0, R=10.
+            phone.duration = 31;
         } else {
             // SSI hold allophones preserve the instantaneous vocal-tract
             // state at the boundary, not merely the preceding ROM target.
@@ -470,6 +490,20 @@ struct FormantCore {
             phone.closure = requested_phone == 0x2B ||
                             requested_phone == 0x2D;
             phone.closure_delay = 0;
+        }
+        if (!hold_parameters) {
+            // A completed noise phone leaves its committed FA driving the
+            // noise DAC until the next once-per-glottal-period filter commit.
+            // Into a voiced or silent target the leftover noise runs at full
+            // closure gain for up to a pitch period -- audibly replaying a
+            // stop release, so P/T/K each sound doubled -- and into a softer
+            // fricative (T's release into HF aspiration) it overdrives the
+            // boosted noise path into the limiter. Clamp the carried level
+            // down to the new target at the boundary; rising levels still
+            // articulate through the normal interpolation.
+            const uint8_t fa_target = static_cast<uint8_t>(phone.fa << 4);
+            cur_fa = std::min(cur_fa, fa_target);
+            filt_fa = std::min(filt_fa, phone.fa);
         }
         phone_tick = 0;
         ticks = 0;
@@ -589,6 +623,20 @@ struct FormantCore {
             if ((ticks & 0x0F) >= phone.closure_delay) {
                 cur_va = interpolate8(cur_va, phone.va, articulation);
             }
+            if (phone.fa != 0 && filt_va == 0 && (cur_va >> 4) == 0) {
+                // The once-per-glottal-period commit can miss an unvoiced
+                // release entirely: T opens its noise window at tick 14 of
+                // 16, and a short phone ends before the period commit ever
+                // transfers FA to the noise DAC, leaving the stop silent.
+                // With no voicing active the noise GAIN latches are safe to
+                // refresh on the interpolator cadence -- but only the gains.
+                // Recommitting the formant coefficient latches this often
+                // re-tunes filters that are still ringing, and the resulting
+                // 1.25 kHz stream of micro-transients turns every fricative
+                // into metallic grinding.
+                filt_fa = cur_fa >> 4;
+                filt_fc = cur_fc >> 4;
+            }
         }
 
         if (!closure_active && (filt_fa || filt_va)) {
@@ -647,6 +695,14 @@ public:
         f4_.reset();
         noise_shaper_.reset();
         output_filter_.reset();
+        presence_low_ = 0.0;
+        voice_gain_ = 0.0;
+        noise_gain_ = 0.0;
+        f2n_gain_ = 0.0;
+        direct_gain_ = 1.0;
+        closure_gain_ = 1.0;
+        high_mix_ = 0.0;
+        trim_gain_ = 1.0;
         cached_f1_ = cached_f2_ = cached_f2q_ = cached_f3_ = -1;
         cached_filter_frequency_ = -1;
         syncFilters(0, 0, 0, 0, 0xE7, true);
@@ -664,36 +720,115 @@ public:
             4.0 / 7.0, 3.0 / 7.0, 2.0 / 7.0, 1.0 / 7.0,
         };
 
-        double voice = 0.0;
-        double noise = 0.0;
-        if (excitation) {
-            voice = core.pitch >= 72 ? 0.0 : glottal[core.pitch >> 3];
-            voice *= static_cast<double>(core.filt_va) / 15.0;
-            // SSI-263 selects the pseudo-random source, rather than the
-            // glottal/pitch source, for an unvoiced phoneme.  Do not carry
-            // SC-01's pitch-phase noise gate into this path: it chops a
-            // sustained fricative such as S into a rough periodic buzz and
-            // breaks the single release of P/K into several audible puffs.
-            noise = 10000.0 * (core.noise_bit ? 1.0 : -1.0);
-            noise *= static_cast<double>(core.filt_fa) / 15.0;
+        // Every control value below is smoothed through a slow-attack /
+        // faster-release one-pole before it scales audio. The 4-bit
+        // parameter latches update in coarse steps, and feeding those steps
+        // straight into the resonant tract filters puts a hard transient at
+        // the start of every noise phone -- H aspiration opened with a
+        // violent click, and S/T/K onsets snapped to full level within a
+        // millisecond. The latches still set the targets, so all timing
+        // stays hardware-driven; only the step edges are rounded the way
+        // the real part's analog stages round them.
+        //
+        // SSI-263 selects the pseudo-random source, rather than the
+        // glottal/pitch source, for an unvoiced phoneme.  Do not carry
+        // SC-01's pitch-phase noise gate into this path: it chops a
+        // sustained fricative such as S into a rough periodic buzz and
+        // breaks the single release of P/K into several audible puffs.
+        const double noise_attack = core.phone.closure ? 0.006 : 0.001;
+        smoothGain(voice_gain_, excitation
+            ? static_cast<double>(core.filt_va) / 15.0 : 0.0);
+        smoothGain(noise_gain_, excitation
+            ? static_cast<double>(core.filt_fa) / 15.0 : 0.0,
+            noise_attack);
+        // Main fricative path: FN-shaped noise scaled by FC into the noise
+        // half of F2, at exactly the MAME/vsim ratio. Any boost here feeds
+        // more energy through a narrow resonator, and narrowband noise
+        // reads as a metallic screech instead of aspiration -- H and K are
+        // almost entirely this path.
+        smoothGain(f2n_gain_, static_cast<double>(core.filt_fc) / 15.0,
+                   noise_attack);
+        smoothGain(direct_gain_,
+                   static_cast<double>(5 + (15 ^ core.filt_fc)) / 20.0);
+        smoothGain(closure_gain_,
+                   static_cast<double>(core.closureGain()) / 7.0, 0.008);
+
+        // Output path blend, expressed as (low + high_mix * high) * trim.
+        // The SC-01 output lowpass sits near 4 kHz, which strips exactly
+        // the band that identifies S/Z/T/TH; fricatives largely bypass it
+        // (high_mix 1.25 recovers the pre-filter signal plus emphasis) and
+        // voiced phones get a gentler presence blend. The sustained
+        // fricative branches carry an additional trim: with the presence
+        // shelf they would otherwise push broadband noise into the soft
+        // knee, and waveshaped noise reads as gritty metal rather than
+        // hiss.
+        const bool noise_phone = core.filt_fa != 0 && core.filt_va == 0;
+        const bool ch_phone = noise_phone && !core.phone.closure &&
+                              (core.sc01_phone == 0x10 ||
+                               core.sc01_phone == 0x11);
+        double high_target;
+        double trim_target;
+        if (ch_phone) {
+            high_target = 0.75;
+            trim_target = 0.7;
+        } else if (core.filt_fa != 0 && !core.phone.closure) {
+            high_target = 1.25;
+            trim_target = 0.5;
+        } else if (core.filt_va != 0 && core.filt_fa == 0) {
+            high_target = 0.75;
+            trim_target = 1.0;
+        } else {
+            high_target = 0.0;
+            trim_target = 1.0;
         }
+        smoothGain(high_mix_, high_target);
+        smoothGain(trim_gain_, trim_target);
+
+        double voice = core.pitch >= 72 ? 0.0 : glottal[core.pitch >> 3];
+        voice *= voice_gain_;
+        double noise = 10000.0 * (core.noise_bit ? 1.0 : -1.0) * noise_gain_;
 
         voice = f1_.process(voice);
         voice = f2_voice_.process(voice);
 
         noise = noise_shaper_.process(noise);
-        double f2_noise = noise * static_cast<double>(core.filt_fc) / 15.0;
-        f2_noise = f2_noise_.process(f2_noise);
+        double f2_noise = f2_noise_.process(noise * f2n_gain_);
 
         double mixed = f3_.process(voice + f2_noise);
-        mixed += noise * static_cast<double>(5 + (15 ^ core.filt_fc)) / 20.0;
+        mixed += noise * direct_gain_;
         mixed = f4_.process(mixed);
-        mixed *= static_cast<double>(core.closureGain()) / 7.0;
-        mixed = output_filter_.process(mixed);
-        return std::isfinite(mixed) ? mixed * 0.35 : 0.0;
+        const double closed = mixed * closure_gain_;
+
+        const double low = output_filter_.process(closed);
+        const double high = closed - low;
+        double shaped = (low + high_mix_ * high) * trim_gain_;
+
+        // Presence shelf: +6 dB above the ~1 kHz corner of a one-pole
+        // tracker, mirroring the fixed hardware presence stage.
+        const double presence = shaped + 0.5 * (shaped - presence_low_);
+        presence_low_ += (shaped - presence_low_) / 8.0;
+        if (!std::isfinite(presence_low_)) {
+            presence_low_ = 0.0;
+        }
+        // 0.27 rather than the pre-presence 0.35: the presence shelf and
+        // voiced bypass raise the average vowel level by roughly a third,
+        // and this keeps normal speech in the same relationship to the
+        // soft knee and limiter as before those stages existed.
+        return std::isfinite(presence) ? presence * 0.27 : 0.0;
     }
 
 private:
+    // Slow attack, faster release, applied to every control gain so
+    // quantized latch updates articulate instead of clicking. The default
+    // attack time constant is ~11 ms (a sustained fricative onset then
+    // takes ~25 ms to develop, like breath); stop releases pass a faster
+    // constant so the burst stays audible while still opening over a few
+    // milliseconds instead of snapping on. Release is ~2.3 ms.
+    static void smoothGain(double &state, double target,
+                           double attack = 0.001) {
+        state += (target - state) * (target > state ? attack : 0.01);
+    }
+
     void syncFilters(uint8_t f1, uint8_t f2, uint8_t f2q, uint8_t f3,
                      uint8_t filter_frequency, bool force) {
         const bool clock_changed =
@@ -747,6 +882,14 @@ private:
     DigitalFilter f4_;
     DigitalFilter noise_shaper_;
     DigitalFilter output_filter_;
+    double presence_low_ = 0.0;
+    double voice_gain_ = 0.0;
+    double noise_gain_ = 0.0;
+    double f2n_gain_ = 0.0;
+    double direct_gain_ = 1.0;
+    double closure_gain_ = 1.0;
+    double high_mix_ = 0.0;
+    double trim_gain_ = 1.0;
     int cached_f1_ = -1;
     int cached_f2_ = -1;
     int cached_f2q_ = -1;

@@ -443,17 +443,21 @@ int main() {
     const float s_peak = peakSample(s_audio);
     const float th_peak = peakSample(th_audio);
 
-    // The SSI targets must not collapse S, TH, and T onto the SC-01A FC=0
-    // high-only path. S remains the brighter sibilant, while dental TH and
-    // the single T release occupy the same controlled band as good P/K.
+    // The SSI targets must not collapse S, TH, and T onto a single noise
+    // path. S is the dominant sibilant: the brightest spectrum and, as a
+    // sustained fricative, more total energy than a K burst. TH is a soft,
+    // diffuse dental fricative -- brighter than the stop bursts but well
+    // below S in both brightness and level. T's alveolar release is
+    // brighter than the low labial P pop, and nothing may reach the
+    // clipped/railed range.
     if (!hasAudibleSamples(s_audio) || !hasAudibleSamples(th_audio) ||
         !hasAudibleSamples(t_audio) || !hasAudibleSamples(p_audio) ||
         !hasAudibleSamples(k_audio) || !allSamplesInRange(s_audio) ||
         !allSamplesInRange(th_audio) || !allSamplesInRange(t_audio) ||
-        s_hf <= stop_hf * 1.20f || s_hf >= 0.20f ||
-        th_hf >= stop_hf * 1.25f || t_hf >= stop_hf * 1.25f ||
-        s_energy >= k_energy * 0.95f || th_energy >= t_energy * 1.10f ||
-        s_peak >= 0.27f || th_peak >= 0.16f) {
+        s_hf <= th_hf || s_hf <= stop_hf * 2.0f ||
+        th_hf <= stop_hf || t_hf <= p_hf ||
+        s_energy <= th_energy * 1.5f ||
+        s_peak <= th_peak || s_peak >= 0.80f || th_peak >= 0.45f) {
         std::fprintf(stderr,
             "SSI-263 consonant spectra collapsed/distorted "
             "(hf S=%g TH=%g T=%g P=%g K=%g; "
