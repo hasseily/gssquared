@@ -140,7 +140,7 @@ Rules that bite people:
 
 - **One card per slot.** Do not list the same slot twice.
 - **Some cards only fit certain slots or machines.** Example: Videx 80-column card is slot 3 only, and only on Apple II / II+. Second Sight and the Video Overlay Card are IIgs-only and slot 3 only.
-- **Most cards allow only one instance.** Mockingboard and Disk II are exceptions — you can have two Mockingboards in different slots.
+- **Most cards allow only one instance.** Phasor and Disk II are exceptions — you can have two Phasors in different slots.
 
 ### Card types
 
@@ -151,7 +151,7 @@ Rules that bite people:
 | `"prodos_clock"` | [Generic ProDOS clock](Cards_Clock.md) (read-only) |
 | `"thunder_clock"` | [Thunderclock Plus](Cards_Clock.md) |
 | `"parallel"` | [Parallel Interface](Cards_Parallel.md) |
-| `"mockingboard"` | [Mockingboard](Cards_Mockingboard.md) |
+| `"phasor"` | Phasor sound card with four AYs and dual SSI-263 speech ([Mockingboard](Cards_Mockingboard.md)-compatible); `"mockingboard"` is accepted as a legacy alias |
 | `"mouse"` | [Apple Mouse III](Cards_AppleMouse.md); `"applemouseiii"` is an alias |
 | `"videx"` | [Videx VideoTerm](Cards_Videx.md) 80-column (II / II+ only, slot 3) |
 | `"mem_expansion"` | Slinky-style RAM expansion (up to 1 MB) |
@@ -295,7 +295,7 @@ image = "disks/BASIC SYSTEM.woz"
 ```toml
 gs2_version = 1
 name = "Apple ][+"
-description = "Disk II, clock, parallel, VIDEX, Mockingboard, SmartPort"
+description = "Disk II, clock, parallel, VIDEX, Phasor, SmartPort"
 platform = "apple2plus"
 clock = "ntsc"
 
@@ -317,7 +317,7 @@ card = "videx"
 
 [[cards]]
 slot = 4
-card = "mockingboard"
+card = "phasor"
 
 [[cards]]
 slot = 5

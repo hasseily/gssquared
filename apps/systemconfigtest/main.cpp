@@ -389,6 +389,44 @@ static bool test_dual_mockingboard() {
     return true;
 }
 
+static bool test_phasor_card_identity() {
+    const auto path = fixture_dir() / "Phasor.gs2";
+    SystemConfig config;
+    std::string error;
+    CHECK(config.load(path.string(), error), "Phasor load: " << error);
+    CHECK(config.config().slot_devices[4] == DEVICE_ID_MOCKINGBOARD,
+          "phasor maps to the compatible internal device id");
+
+    const auto choices = cards_allowed_for_slot(PLATFORM_APPLE_IIE_ENHANCED, 4);
+    int matching_choices = 0;
+    for (const auto& choice : choices) {
+        if (choice.id != DEVICE_ID_MOCKINGBOARD) continue;
+        ++matching_choices;
+        CHECK(std::string(choice.toml_name) == "phasor", "picker canonical token");
+        CHECK(std::string(choice.display_name) == "Phasor", "picker display name");
+    }
+    CHECK(matching_choices == 1, "picker has exactly one Phasor choice");
+
+    const auto tmp = std::filesystem::temp_directory_path() / "gs2_phasor_roundtrip.gs2";
+    CHECK(config.save(tmp.string(), error), "save Phasor: " << error);
+    std::ifstream saved(tmp);
+    CHECK(saved.is_open(), "open saved Phasor config");
+    const std::string text((std::istreambuf_iterator<char>(saved)),
+                           std::istreambuf_iterator<char>());
+    CHECK(text.find("card = \"phasor\"") != std::string::npos,
+          "save uses canonical phasor token");
+    CHECK(text.find("card = \"mockingboard\"") == std::string::npos,
+          "save does not emit legacy mockingboard token");
+
+    SystemConfig reloaded;
+    CHECK(reloaded.load(tmp.string(), error), "reload Phasor: " << error);
+    CHECK(reloaded.config().slot_devices[4] == DEVICE_ID_MOCKINGBOARD,
+          "phasor roundtrip device id");
+    saved.close();
+    std::filesystem::remove(tmp);
+    return true;
+}
+
 static bool test_storage_multivolume() {
     const auto path = fixture_dir() / "BazFastVolumes.gs2";
     SystemConfig config;
@@ -652,6 +690,7 @@ static bool run_self_tests() {
         {"appletini_availability", test_appletini_availability},
         {"appletini_ramworks_policy", test_appletini_ramworks_policy},
         {"dual_mockingboard", test_dual_mockingboard},
+        {"phasor_card_identity", test_phasor_card_identity},
         {"storage_multivolume", test_storage_multivolume},
         {"parallel_output", test_parallel_output},
         {"clipboard_connection", test_clipboard_connection},
