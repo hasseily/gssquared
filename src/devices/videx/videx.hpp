@@ -21,6 +21,7 @@
 #include "cpu.hpp"
 #include "computer.hpp"
 #include "util/ResourceFile.hpp"
+#include "display/RendererResource.hpp"
 
 // Parameters
 
@@ -98,6 +99,7 @@ typedef struct videx_data: public SlotData {
     NClockII *clock = nullptr;
     
     SDL_Texture *videx_texture = nullptr;
+    RendererResource renderer_resource;
     uint8_t *buffer = nullptr; // 640x216x4
 
     uint8_t video_enabled = 0;

@@ -1,15 +1,41 @@
 #include "ss_gpu.hpp"
 
 #include <cstdio>
+#include <algorithm>
+#include <stdexcept>
 #include <cstring>
 
 void SsGpu::init(video_system_t *video) {
     vs = video;
     slots.assign(MAX_TEXTURES + 1, Slot{});
     csb.assign(MAX_CSB, 0);
+    renderer_resource.register_owner(vs->renderer, [this]() {
+        for (auto& slot : slots) { SDL_DestroyTexture(slot.tex); slot.tex = nullptr; }
+        for (auto& texture : display) { SDL_DestroyTexture(texture); texture = nullptr; }
+    }, [this](SDL_Renderer* renderer) {
+        for (auto& slot : slots) if (!slot.rgba.empty()) {
+            slot.tex = make_rgba_texture(slot.w, slot.h, slot.rgba.data());
+            if (!slot.tex) throw std::runtime_error("Failed to restore Second Sight texture");
+        }
+        if (!active) return;
+        SDL_Texture* previous = SDL_GetRenderTarget(renderer);
+        for (int i = 0; i < 2; ++i) {
+            display[i] = SDL_CreateTexture(renderer, PIXEL_FORMAT, SDL_TEXTUREACCESS_TARGET, width, height);
+            if (!display[i]) throw std::runtime_error("Failed to restore Second Sight display");
+            SDL_SetTextureBlendMode(display[i], SDL_BLENDMODE_NONE);
+            SDL_SetTextureScaleMode(display[i], SDL_SCALEMODE_NEAREST);
+            auto* upload_texture = make_rgba_texture(width, height, display_pixels[i].data());
+            if (!upload_texture) throw std::runtime_error("Failed to restore Second Sight display pixels");
+            SDL_SetRenderTarget(renderer, display[i]);
+            SDL_RenderTexture(renderer, upload_texture, nullptr, nullptr);
+            SDL_DestroyTexture(upload_texture);
+        }
+        SDL_SetRenderTarget(renderer, previous);
+    });
 }
 
 void SsGpu::shutdown() {
+    renderer_resource.unregister();
     leave_mode();
     vs = nullptr;
 }
@@ -41,6 +67,7 @@ void SsGpu::leave_mode() {
         destroy_slot(slots[i]);
     }
     destroy_display();
+    for (auto& pixels : display_pixels) pixels.clear();
     width = 0;
     height = 0;
     native_format = 0;
@@ -81,6 +108,11 @@ bool SsGpu::enter_mode(uint16_t w, uint16_t h, uint8_t fmt) {
     SDL_SetRenderTarget(vs->renderer, display[back]);
     SDL_RenderClear(vs->renderer);
     SDL_SetRenderTarget(vs->renderer, nullptr);
+    const auto black = RGBA_t::make(0, 0, 0, 255);
+    for (auto& pixels : display_pixels) {
+        pixels.resize(static_cast<size_t>(w) * h * 4);
+        for (size_t offset = 0; offset < pixels.size(); offset += 4) memcpy(pixels.data() + offset, &black, 4);
+    }
     return true;
 }
 
@@ -193,6 +225,7 @@ uint16_t SsGpu::upload_texture(uint16_t w, uint16_t h, uint8_t format, uint8_t f
     s.format = format;
     s.flags = flags;
     s.bytes = (uint32_t)w * (uint32_t)h * 4u;
+    s.rgba = std::move(rgba);
     heap_used += s.bytes;
     return handle;
 }
@@ -283,6 +316,9 @@ bool SsGpu::exec_csb(const uint8_t *buf, uint32_t len, bool *wait_vbl) {
             const uint8_t b = (uint8_t)c;
             SDL_SetRenderDrawColor(vs->renderer, r, g, b, a);
             SDL_RenderClear(vs->renderer);
+            const auto pixel = RGBA_t::make(r, g, b, a);
+            for (size_t offset = 0; offset < display_pixels[back].size(); offset += 4)
+                memcpy(display_pixels[back].data() + offset, &pixel, 4);
             pc += 5;
         } else if (op == 0x02) { // Present flags
             if (pc + 2 > len) {
@@ -313,6 +349,15 @@ bool SsGpu::exec_csb(const uint8_t *buf, uint32_t len, bool *wait_vbl) {
             }
             SDL_FRect dst = {(float)x, (float)y, (float)s->w, (float)s->h};
             SDL_RenderTexture(vs->renderer, s->tex, nullptr, &dst);
+            // Preserve the guest GPU framebuffer across host context loss. The
+            // current ISA is a nearest-neighbor, unblended, 1:1 texture blit.
+            const int left = std::max(0, static_cast<int>(x));
+            const int top = std::max(0, static_cast<int>(y));
+            const int right = std::min(static_cast<int>(width), x + static_cast<int>(s->w));
+            const int bottom = std::min(static_cast<int>(height), y + static_cast<int>(s->h));
+            for (int row = top; row < bottom && right > left; ++row)
+                memcpy(display_pixels[back].data() + (row * width + left) * 4,
+                    s->rgba.data() + ((row - y) * s->w + left - x) * 4, (right - left) * 4);
             pc += 7;
         } else {
             ok = false;

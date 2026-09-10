@@ -7,6 +7,7 @@
 #include <stdexcept>
 #include <type_traits>
 #include <SDL3/SDL.h>
+#include "display/RendererResource.hpp"
 
 struct color_mode_t {
     /* uint8_t colorburst;
@@ -43,6 +44,9 @@ class MemoryStorage {
 
 class SDLTextureStorage {
     SDL_Texture* texture;
+    RendererResource resource;
+    SDL_ScaleMode scale = SDL_SCALEMODE_NEAREST;
+    SDL_BlendMode blend = SDL_BLENDMODE_NONE;
 public:
     SDLTextureStorage(int w, int h, SDL_Renderer* renderer, SDL_PixelFormat format) {
         printf("Creating texture %d x %d %08X\n", w, h, format);
@@ -50,6 +54,17 @@ public:
         if (!texture) {
             throw std::runtime_error("Failed to create texture");
         }
+        resource.register_owner(renderer, [this]() {
+            SDL_GetTextureScaleMode(texture, &scale);
+            SDL_GetTextureBlendMode(texture, &blend);
+            SDL_DestroyTexture(texture);
+            texture = nullptr;
+        }, [this, w, h, format](SDL_Renderer* replacement) {
+            texture = SDL_CreateTexture(replacement, format, SDL_TEXTUREACCESS_STREAMING, w, h);
+            if (!texture) throw std::runtime_error("Failed to restore frame texture");
+            SDL_SetTextureScaleMode(texture, scale);
+            SDL_SetTextureBlendMode(texture, blend);
+        });
     }
 
     ~SDLTextureStorage() {
@@ -168,6 +183,7 @@ public:
             void *pixels;
             int pitch;
     
+            texture = storage->get_texture();
             SDL_LockTexture(texture, nullptr, &pixels, &pitch);
             stream = static_cast<bs_t(*)[WIDTH]>(pixels);
             set_line_v(scanline);
@@ -180,7 +196,10 @@ public:
         }
     }
 
-    inline SDL_Texture* get_texture() { return texture; }
+    inline SDL_Texture* get_texture() {
+        if constexpr (std::is_same_v<StoragePolicy, SDLTextureStorage>) return storage->get_texture();
+        return texture;
+    }
 
     inline void set_color_mode(uint32_t line, color_mode_t mode) {
         if (line >= HEIGHT) {

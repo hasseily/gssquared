@@ -30,6 +30,13 @@ TextRenderer::TextRenderer(SDL_Renderer *renderer, const std::string &font_path,
         font_line_height = TTF_GetFontHeight(font);
         engine = TTF_CreateRendererTextEngine(renderer);
     }
+    renderer_resource.register_owner(renderer, [this]() {
+        if (engine) TTF_DestroyRendererTextEngine(engine);
+        engine = nullptr;
+    }, [this](SDL_Renderer* replacement) {
+        this->renderer = replacement;
+        if (font) engine = TTF_CreateRendererTextEngine(replacement);
+    });
 }
 
 TextRenderer::~TextRenderer() {
