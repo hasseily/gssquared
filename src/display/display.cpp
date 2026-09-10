@@ -73,6 +73,7 @@ constexpr SDL_FRect content_rec_vsg2[4][2] = {
 
 bool update_display_apple2_cycle(display_state_t *ds) {
     video_system_t *vs = ds->video_system;
+    vs->set_logical_scanlines(192);
 
     ScanBuffer *scanbuf = ds->video_scanner->get_frame_scan();
 

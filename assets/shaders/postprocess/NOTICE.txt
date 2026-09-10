@@ -1,0 +1,22 @@
+Postprocessing is ported from SuperDuperDisplay 0.9.1,
+revision b49a491671cb78d0a1fba1d1ba2c950f1a6c2455:
+https://github.com/hasseily/SuperDuperDisplay
+
+Original CRT shader notice:
+By Rikkles.
+This shader uses parts from:
+crt-Cyclon by DariusG
+crt-Geom (alternate scanlines)
+Mattias CRT
+Quillez (main filter)
+Dogway's inverse Gamma
+
+This program is free software; you can redistribute it and/or modify it
+under the terms of the GNU General Public License as published by the Free
+Software Foundation; either version 2 of the License, or (at your option)
+any later version.
+
+The distributed GPL-3.0 license is under resources/licenses/GPL-3.0.txt.
+The original bezel/glass shader is by Rikkles. Its SuperDuperDisplay MIT
+notice, also covering the imported presets and assets, is distributed in
+resources/licenses/SuperDuperDisplay-MIT.txt.

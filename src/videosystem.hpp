@@ -65,6 +65,11 @@ struct video_system_t {
     SDL_Texture* guest_overlay_texture = nullptr;
     uint64_t guest_overlay_generation = UINT64_MAX;
     int guest_overlay_width = 0, guest_overlay_height = 0;
+    unsigned logical_scanlines = 0;
+    int postprocess_sample_width=0,postprocess_sample_height=0;
+    bool fields_already_composed = false;
+    uint64_t rendered_frame_identity = 0;
+    uint64_t last_render_mode = UINT64_MAX;
     SDL_Texture *screencap_texture = nullptr;
     
     display_fullscreen_mode_t display_fullscreen_mode = DISPLAY_WINDOWED_MODE;
@@ -152,11 +157,22 @@ public:
     // Finish guest composition and start the independent host UI layer. Called
     // once per frame after update_display() and before the OSD is drawn.
     void present_scene();
+    gs2::postprocess::Settings& postprocess_settings() { return postprocessor->settings(); }
+    const gs2::postprocess::Settings& postprocess_settings() const { return postprocessor->settings(); }
+    bool postprocess_available() const { return crt_shader_available(); }
+    const std::string& postprocess_status() const { return postprocessor->status(); }
+    void postprocess_settings_changed() { postprocessor->settings_changed(); crt_shader_enabled = postprocessor->settings().p_i_postprocessingLevel != 0; }
+    void set_postprocess_assets(const std::string& bezel, const std::string& glass) { postprocessor->set_assets(bezel, glass); }
     void release_postprocessor();
     bool recreate_postprocessor();
     bool set_vsync(int enabled) { return postprocessor->set_vsync(enabled); }
     void begin_host_ui();
+    bool map_output_to_scene(float& x,float& y) const { return postprocessor->map_output_to_scene(x,y); }
+    void reset_postprocess_history() { if (postprocessor) postprocessor->reset_history(); }
     void set_guest_overlay_provider(std::function<GuestOverlayFrame()> provider) { guest_overlay_provider = std::move(provider); }
+    void set_fields_already_composed(bool value) { fields_already_composed = value; }
+    void set_postprocess_sample_dimensions(int w,int h) { postprocess_sample_width=w;postprocess_sample_height=h; }
+    void set_logical_scanlines(unsigned count) { logical_scanlines = count; }
 
     void push_mouse_capture(bool capture);
     void pop_mouse_capture();

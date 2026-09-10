@@ -138,6 +138,8 @@ file(GLOB_RECURSE GS2_ASSET_FILES CONFIGURE_DEPENDS
     "${CMAKE_SOURCE_DIR}/assets/sounds/*"
     "${CMAKE_SOURCE_DIR}/assets/fonts/*"
     "${CMAKE_SOURCE_DIR}/assets/shaders/*"
+    "${CMAKE_SOURCE_DIR}/assets/licenses/*"
+    "${CMAKE_SOURCE_DIR}/assets/postprocess/*"
     "${CMAKE_SOURCE_DIR}/assets/gs2/*"
     "${CMAKE_SOURCE_DIR}/assets/vdisk/*"
 )
@@ -155,6 +157,8 @@ set(GS2_RESOURCES_STAMPS
     "${CMAKE_BINARY_DIR}/resources/sounds/.assembled.stamp"
     "${CMAKE_BINARY_DIR}/resources/fonts/.assembled.stamp"
     "${CMAKE_BINARY_DIR}/resources/shaders/.assembled.stamp"
+    "${CMAKE_BINARY_DIR}/resources/licenses/.assembled.stamp"
+    "${CMAKE_BINARY_DIR}/resources/postprocess/.assembled.stamp"
     "${CMAKE_BINARY_DIR}/resources/gs2/.assembled.stamp"
     "${CMAKE_BINARY_DIR}/resources/img/.assembled.stamp"
 )
@@ -179,6 +183,8 @@ add_custom_command(
     COMMAND ${CMAKE_COMMAND} -E copy_directory ${CMAKE_SOURCE_DIR}/assets/sounds ${CMAKE_BINARY_DIR}/resources/sounds
     COMMAND ${CMAKE_COMMAND} -E copy_directory ${CMAKE_SOURCE_DIR}/assets/fonts ${CMAKE_BINARY_DIR}/resources/fonts
     COMMAND ${CMAKE_COMMAND} -E copy_directory ${CMAKE_SOURCE_DIR}/assets/shaders ${CMAKE_BINARY_DIR}/resources/shaders
+    COMMAND ${CMAKE_COMMAND} -E copy_directory ${CMAKE_SOURCE_DIR}/assets/licenses ${CMAKE_BINARY_DIR}/resources/licenses
+    COMMAND ${CMAKE_COMMAND} -E copy_directory ${CMAKE_SOURCE_DIR}/assets/postprocess ${CMAKE_BINARY_DIR}/resources/postprocess
     COMMAND ${CMAKE_COMMAND} -E copy_directory ${CMAKE_SOURCE_DIR}/assets/gs2 ${CMAKE_BINARY_DIR}/resources/gs2
     COMMAND ${CMAKE_COMMAND} -E copy_directory ${CMAKE_SOURCE_DIR}/assets/vdisk ${CMAKE_BINARY_DIR}/resources/vdisk
 
@@ -281,8 +287,8 @@ set(CMAKE_CXX_STANDARD_REQUIRED True)
 # pthreads binary against objects built without them. Set this before any
 # targets (including the vendored SDL subdirectories) are created.
 if(EMSCRIPTEN)
-    add_compile_options(-pthread)
-    add_link_options(-pthread)
+    add_compile_options(-pthread -fwasm-exceptions)
+    add_link_options(-pthread -fwasm-exceptions)
 endif()
 
 configure_sdl_builds()
@@ -532,6 +538,7 @@ add_library(gs2_ui src/ui/AssetAtlas.cpp src/ui/Container.cpp src/ui/DiskII_Butt
     src/ui/DirtyDiskSave.cpp src/ui/QuitModal.cpp src/ui/ScrollBar.cpp src/ui/WrapContainer.cpp
     src/ui/StorageButtonFactory.cpp src/ui/SlotsPanel.cpp src/ui/SystemBadge.cpp src/ui/ConfigSelectors.cpp
     src/ui/EditSystem.cpp
+    src/display/postprocess/PostProcessPreset.cpp
     src/ui/SerialPortButton.cpp src/ui/SerialPortsOSD.cpp
 )
 
@@ -548,7 +555,7 @@ add_library(gs2_ntsc
 )
 
 add_library(gs2_postprocess src/display/postprocess/PostProcessor.cpp)
-target_link_libraries(gs2_postprocess PUBLIC gs2_ntsc ${GS2_SDL3})
+target_link_libraries(gs2_postprocess PUBLIC gs2_ntsc ${GS2_SDL3} ${GS2_SDL3_IMAGE})
 if(UNIX AND NOT APPLE AND NOT EMSCRIPTEN)
     find_package(OpenGL REQUIRED)
     target_link_libraries(gs2_postprocess PUBLIC OpenGL::GL)
@@ -793,6 +800,7 @@ if(NOT EMSCRIPTEN)
     add_subdirectory(apps/systemconfigtest)
     add_subdirectory(apps/renderresourcetest)
     add_subdirectory(apps/postprocesstest)
+    add_subdirectory(apps/postprocesspresettest)
     add_subdirectory(apps/videoscanregressiontest)
     add_subdirectory(apps/capturetest)
 endif()
@@ -1196,6 +1204,8 @@ if((UNIX) AND NOT CMAKE_SYSTEM_NAME STREQUAL "Darwin" AND NOT EMSCRIPTEN)
             DESTINATION "${GS2_INSTALL_DATADIR}"
             COMPONENT Runtime
         )
+        install(DIRECTORY "${CMAKE_BINARY_DIR}/resources/postprocess" "${CMAKE_BINARY_DIR}/resources/licenses"
+            DESTINATION "${GS2_INSTALL_DATADIR}" COMPONENT Runtime)
         install(FILES "${CMAKE_BINARY_DIR}/resources/img/atlas.png"
             DESTINATION "${GS2_INSTALL_DATADIR}/img"
             COMPONENT Runtime

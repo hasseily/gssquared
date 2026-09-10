@@ -185,6 +185,7 @@ inline void window_to_render_coords(video_system_t *vs, float wx, float wy, floa
             points_w > 0 && points_h > 0) {
             rx = wx * static_cast<float>(pixels_w) / points_w;
             ry = wy * static_cast<float>(pixels_h) / points_h;
+            vs->map_output_to_scene(rx, ry);
         }
     }
 }
