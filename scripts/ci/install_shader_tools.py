@@ -31,6 +31,18 @@ def run(*args: str, cwd: Path | None = None) -> None:
     subprocess.run(args, cwd=cwd, check=True)
 
 
+def find_dxc(root: Path, system: str) -> Path:
+    # Official releases have used both a flat archive and a versioned outer
+    # directory. Preserve that layout (and adjacent shared libraries) while
+    # selecting the intended host architecture explicitly.
+    suffix = ("bin", "x64", "dxc.exe") if system == "Windows" else ("bin", "dxc")
+    candidates = [path for path in root.rglob(suffix[-1])
+                  if path.is_file() and path.parts[-len(suffix):] == suffix]
+    if len(candidates) != 1:
+        raise SystemExit(f"Expected one {system} DXC executable in {root}; found {len(candidates)}")
+    return candidates[0]
+
+
 def build_tool(prefix: Path, name: str, revision: str, options: list[str]) -> None:
     source = prefix / "src" / name
     source.mkdir(parents=True, exist_ok=True)
@@ -70,17 +82,17 @@ def main() -> None:
     if system == "Windows":
         with zipfile.ZipFile(archive) as bundle:
             bundle.extractall(dxc_root)
-        dxc = dxc_root / "bin" / "x64" / "dxc.exe"
     else:
         with tarfile.open(archive) as bundle:
             bundle.extractall(dxc_root, filter="data")
-        dxc = dxc_root / "bin" / "dxc"
-    if not dxc.is_file():
-        raise SystemExit(f"Expected DXC executable missing: {dxc}")
+    dxc = find_dxc(dxc_root, system)
     run(str(dxc), "--version")
     if os.environ.get("GITHUB_PATH"):
         with open(os.environ["GITHUB_PATH"], "a", encoding="utf-8") as output:
             output.write(str(prefix / "bin") + "\n" + str(dxc.parent) + "\n")
+    if os.environ.get("GITHUB_ENV"):
+        with open(os.environ["GITHUB_ENV"], "a", encoding="utf-8") as output:
+            output.write("GS2_DXC_PATH=" + str(dxc) + "\n")
     print(f"Installed shader tools in {prefix}")
 
 

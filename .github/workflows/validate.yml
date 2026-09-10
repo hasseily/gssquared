@@ -173,7 +173,7 @@ jobs:
       - name: Compile HLSL with Windows DXC
         shell: pwsh
         run: |
-          $dxc = Join-Path $env:RUNNER_TEMP 'shader-tools/dxc/bin/x64/dxc.exe'
+          $dxc = $env:GS2_DXC_PATH
           foreach ($name in @('fullscreen.vert', 'fullscreen_target.vert', 'crt.frag', 'composite.frag')) {
             $profile = if ($name.EndsWith('.vert')) { 'vs_6_0' } else { 'ps_6_0' }
             $output = Join-Path $env:RUNNER_TEMP ($name + '.dxil')
