@@ -58,3 +58,23 @@ field metadata accompany the image, without requiring a new renderer.
 loader hold/reset and mixed tails. The generic scanline safety regression guards
 resynchronization after these RAM-based modes discard the cycle stream. Physical
 120 Hz output scheduling and external-video hardware are not emulated.
+
+The native linear-text interface belongs to Appletini slot 7 at C0F0–C0FF;
+it does not install a VOC or Second Sight card. C0F8–C0FD identify `LINTXT`,
+with C0FE/C0FF version bytes 4C/10. INDEX/DATA/DATA_INC select configuration;
+CMD (C0F3) provides OFF/ARM/SHOW/HIDE, and STATUS (C0F4) exposes BUSY, STALE,
+CONFIG_ERROR, FRAME_PENDING, ARMED and VISIBLE.
+
+After staging the buffer/geometry, ARM and poll BUSY, then write every cell to
+the selected main/base-aux buffer before SHOW. Each cell is character+attribute;
+prior RAM contents are not captured. The supported range begins at 0200 and
+ends below C000. Higher RamWorks banks and unshadowed IIgs fast RAM are excluded.
+The canvas is 1120×768 for legacy video or 1280×800 for SHR; glyph pixels are
+composed before emulator controls through the existing SDL renderer.
+
+VT100/DEC and CP437 glyphs, attributes, underline, cursor, blink and transparent
+backgrounds follow the F1.0.8 ABI. Guest software owns ANSI parsing and scrolling.
+VOC supplies a distinct IIgs bitmap/field interface, not this character-buffer
+ABI. `appletinitexttest` checks register/state transitions, glyphs/clipping and
+resolved MMU capture. Fixed Terminus 4.49.1 font bitmaps retain their SIL Open Font
+License in `assets/licenses/Terminus-OFL.txt`, shipped with application resources.

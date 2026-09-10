@@ -23,6 +23,7 @@
 #include <vector>
 #include <memory>
 #include "devices/pdblock3/AppletiniSmartPort.hpp"
+#include "devices/displaypp/generate/AppletiniTextOverlay.hpp"
 #include "devices/pdblock3/AppletiniSpeedControl.hpp"
 #include "devices/pdblock3/AppletiniRamWorksConfig.hpp"
 #include "devices/iiememory/iiememory.hpp"
@@ -1022,6 +1023,7 @@ void init_appletini(computer_t *computer, SlotType_t slot)
         delete pdblock_d;
         return true;
     });
+    init_appletini_text_overlay(computer);
     display_enable_appletini_video(computer);
     auto *display = static_cast<display_state_t *>(
         computer->get_module_state(MODULE_DISPLAY));

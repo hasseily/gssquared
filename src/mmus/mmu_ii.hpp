@@ -24,6 +24,7 @@ class MMU_II : public MMU {
         int8_t C8xx_slot;
         C8XX_handler_t C8xx_handlers[8] = {nullptr};
         page_table_entry_t slot_rom_ptable[15]; // handle C1-CF
+        write_handler_t ram_write_observer_ = {nullptr, nullptr};
 
         virtual void power_on_randomize(uint8_t *ram, int ram_size);
         
@@ -52,6 +53,14 @@ class MMU_II : public MMU {
         virtual int get_C8xx_slot() { return C8xx_slot; };
         virtual void reset(bool cold_start = false) override;
         virtual void dump_C0XX_handlers();
+        // Observe physical Apple-bus RAM writes after banking has resolved.
+        // Address bit 16 selects the base aux bank; higher RamWorks banks and
+        // IIgs fast RAM are outside this bus. Debugger raw stores are not bus writes.
+        void set_ram_write_observer(write_handler_t observer) { ram_write_observer_ = observer; }
+        void notify_ram_write(uint32_t resolved_address, uint8_t value) {
+            if (ram_write_observer_.write)
+                ram_write_observer_.write(ram_write_observer_.context, resolved_address, value);
+        }
         /* Handlers for "Slot ROM" area C1 - CF */
         virtual void compose_c1cf();
         virtual void map_c1cf_page_both(uint8_t page, uint8_t *data, const char *read_d);
@@ -59,4 +68,3 @@ class MMU_II : public MMU {
         virtual void map_c1cf_page_read_h(page_t page, read_handler_t handler, const char *read_d);
         virtual void map_c1cf_page_write_h(page_t page, write_handler_t handler, const char *write_d);
 };
-

@@ -1,7 +1,7 @@
 gs2_version = 1
 id = "d08a1080-49ea-4bf1-ae40-070000000108"
 name = "IIe Enhanced Appletini"
-description = "Appletini ONE F1.0.8 SmartPort, RamWorks and extended video"
+description = "Appletini ONE F1.0.8 SmartPort, RamWorks, extended video and linear text"
 platform = "apple2e_enhanced"
 clock = "ntsc"
 

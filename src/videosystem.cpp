@@ -179,6 +179,7 @@ video_system_t::video_system_t(computer_t *computer) {
 }
 
 video_system_t::~video_system_t() {
+    if (guest_overlay_texture) SDL_DestroyTexture(guest_overlay_texture);
     if (screenshot_writer) {
         delete screenshot_writer;
         screenshot_writer = nullptr;
@@ -595,6 +596,28 @@ void video_system_t::update_display(bool force_full_frame) {
         }
     }
 
+    if (guest_overlay_provider) {
+        const auto overlay = guest_overlay_provider();
+        if (overlay.visible && overlay.pixels && overlay.width>0 && overlay.height>0) {
+            if (!guest_overlay_texture || guest_overlay_width!=overlay.width || guest_overlay_height!=overlay.height) {
+                if (guest_overlay_texture) SDL_DestroyTexture(guest_overlay_texture);
+                guest_overlay_texture=SDL_CreateTexture(renderer,SDL_PIXELFORMAT_RGBA32,SDL_TEXTUREACCESS_STREAMING,overlay.width,overlay.height);
+                guest_overlay_width=overlay.width;guest_overlay_height=overlay.height;guest_overlay_generation=UINT64_MAX;
+                if (guest_overlay_texture) {
+                    SDL_SetTextureBlendMode(guest_overlay_texture,SDL_BLENDMODE_BLEND);
+                    SDL_SetTextureScaleMode(guest_overlay_texture,SDL_SCALEMODE_NEAREST);
+                }
+            }
+            if (guest_overlay_texture) {
+                if (guest_overlay_generation!=overlay.generation) {
+                    SDL_UpdateTexture(guest_overlay_texture,nullptr,overlay.pixels,overlay.width*4);
+                    guest_overlay_generation=overlay.generation;
+                }
+                const SDL_FRect rect=content.w>0 && content.h>0 ? content : target;
+                SDL_RenderTexture(renderer,guest_overlay_texture,nullptr,&rect);
+            }
+        }
+    }
     if (use_scene) {
         SDL_SetRenderTarget(renderer, nullptr);
     }

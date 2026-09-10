@@ -6,6 +6,7 @@
 #include "computer.hpp"
 #include "util/EventQueue.hpp"
 #include "display/types.hpp"
+#include "display/GuestOverlayFrame.hpp"
 #include "ui/Clipboard.hpp"
 #include "ui/ScreenshotWriter.hpp"
 #include "devices/displaypp/RGBA.hpp"
@@ -68,6 +69,10 @@ struct video_system_t {
     // GPU renderer + shader are available (gpu_device and crt_state non-null).
     bool crt_shader_enabled = false;
     SDL_Texture *screencap_texture = nullptr;
+    std::function<GuestOverlayFrame()> guest_overlay_provider;
+    SDL_Texture *guest_overlay_texture = nullptr;
+    uint64_t guest_overlay_generation = UINT64_MAX;
+    int guest_overlay_width = 0, guest_overlay_height = 0;
     unsigned logical_scanlines = 0;
     bool fields_already_composed = false;
     
@@ -160,6 +165,9 @@ public:
     // swapchain (through the shader). No-op otherwise. Called once per frame
     // after update_display() and before the OSD is drawn.
     void present_scene();
+    void set_guest_overlay_provider(std::function<GuestOverlayFrame()> provider) {
+        guest_overlay_provider = std::move(provider);
+    }
     void set_logical_scanlines(unsigned lines) { logical_scanlines = lines; }
     void set_fields_already_composed(bool composed) { fields_already_composed = composed; }
     void push_mouse_capture(bool capture);

@@ -138,6 +138,7 @@ file(GLOB_RECURSE GS2_ASSET_FILES CONFIGURE_DEPENDS
     "${CMAKE_SOURCE_DIR}/assets/sounds/*"
     "${CMAKE_SOURCE_DIR}/assets/fonts/*"
     "${CMAKE_SOURCE_DIR}/assets/shaders/*"
+    "${CMAKE_SOURCE_DIR}/assets/licenses/*"
     "${CMAKE_SOURCE_DIR}/assets/gs2/*"
     "${CMAKE_SOURCE_DIR}/assets/vdisk/*"
 )
@@ -155,6 +156,7 @@ set(GS2_RESOURCES_STAMPS
     "${CMAKE_BINARY_DIR}/resources/sounds/.assembled.stamp"
     "${CMAKE_BINARY_DIR}/resources/fonts/.assembled.stamp"
     "${CMAKE_BINARY_DIR}/resources/shaders/.assembled.stamp"
+    "${CMAKE_BINARY_DIR}/resources/licenses/.assembled.stamp"
     "${CMAKE_BINARY_DIR}/resources/gs2/.assembled.stamp"
     "${CMAKE_BINARY_DIR}/resources/img/.assembled.stamp"
 )
@@ -168,6 +170,7 @@ add_custom_command(
     COMMAND ${CMAKE_COMMAND} -E make_directory ${CMAKE_BINARY_DIR}/resources/img
     COMMAND ${CMAKE_COMMAND} -E make_directory ${CMAKE_BINARY_DIR}/resources/fonts
     COMMAND ${CMAKE_COMMAND} -E make_directory ${CMAKE_BINARY_DIR}/resources/shaders
+    COMMAND ${CMAKE_COMMAND} -E make_directory ${CMAKE_BINARY_DIR}/resources/licenses
     COMMAND ${CMAKE_COMMAND} -E make_directory ${CMAKE_BINARY_DIR}/resources/gs2
     COMMAND ${CMAKE_COMMAND} -E make_directory ${CMAKE_BINARY_DIR}/resources/vdisk
 
@@ -179,6 +182,7 @@ add_custom_command(
     COMMAND ${CMAKE_COMMAND} -E copy_directory ${CMAKE_SOURCE_DIR}/assets/sounds ${CMAKE_BINARY_DIR}/resources/sounds
     COMMAND ${CMAKE_COMMAND} -E copy_directory ${CMAKE_SOURCE_DIR}/assets/fonts ${CMAKE_BINARY_DIR}/resources/fonts
     COMMAND ${CMAKE_COMMAND} -E copy_directory ${CMAKE_SOURCE_DIR}/assets/shaders ${CMAKE_BINARY_DIR}/resources/shaders
+    COMMAND ${CMAKE_COMMAND} -E copy_directory ${CMAKE_SOURCE_DIR}/assets/licenses ${CMAKE_BINARY_DIR}/resources/licenses
     COMMAND ${CMAKE_COMMAND} -E copy_directory ${CMAKE_SOURCE_DIR}/assets/gs2 ${CMAKE_BINARY_DIR}/resources/gs2
     COMMAND ${CMAKE_COMMAND} -E copy_directory ${CMAKE_SOURCE_DIR}/assets/vdisk ${CMAKE_BINARY_DIR}/resources/vdisk
 
@@ -326,7 +330,8 @@ add_library(gs2_util_audio src/devices/speaker/LowPass.cpp src/devices/speaker/S
 
 add_library(gs2_devices_pdblock2 src/devices/pdblock2/pdblock2.cpp )
 
-add_library(gs2_devices_pdblock3 src/devices/pdblock3/pdblock3.cpp )
+add_library(gs2_devices_pdblock3 src/devices/pdblock3/pdblock3.cpp
+    src/devices/pdblock3/AppletiniTextOverlayDevice.cpp )
 
 add_library(gs2_devices_prodos_clock src/devices/prodos_clock/prodos_clock.cpp )
 
@@ -509,7 +514,9 @@ add_library(gs2_ui src/ui/AssetAtlas.cpp src/ui/Container.cpp src/ui/DiskII_Butt
 add_library(gs2_displaypp src/devices/displaypp/frame/frame_bit.cpp src/devices/displaypp/frame/frame_byte.cpp
     src/devices/displaypp/CharRom.cpp src/devices/displaypp/AppleIIgsColors.cpp
     src/devices/displaypp/generate/AppleII.cpp
-    src/devices/displaypp/generate/AppletiniVideo.cpp)
+    src/devices/displaypp/generate/AppletiniVideo.cpp
+    src/devices/displaypp/generate/AppletiniTextOverlay.cpp
+    src/devices/displaypp/generate/AppletiniTextOverlayFont.cpp)
 
 add_library(gs2_ntsc
     src/display/ntsc.cpp
@@ -759,6 +766,7 @@ if(NOT EMSCRIPTEN)
     add_subdirectory(apps/appletinismartporttest)
     add_subdirectory(apps/appletinispeedtest)
     add_subdirectory(apps/appletinivideotest)
+    add_subdirectory(apps/appletinitexttest)
 endif()
 
 ################################################################################
@@ -1157,6 +1165,10 @@ if((UNIX) AND NOT CMAKE_SYSTEM_NAME STREQUAL "Darwin" AND NOT EMSCRIPTEN)
             COMPONENT Runtime
         )
         install(DIRECTORY "${CMAKE_BINARY_DIR}/resources/shaders"
+            DESTINATION "${GS2_INSTALL_DATADIR}"
+            COMPONENT Runtime
+        )
+        install(DIRECTORY "${CMAKE_BINARY_DIR}/resources/licenses"
             DESTINATION "${GS2_INSTALL_DATADIR}"
             COMPONENT Runtime
         )
