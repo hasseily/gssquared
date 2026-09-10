@@ -7,6 +7,7 @@ Requires `pip install playwright==1.59.0 pillow==11.3.0` and
 from __future__ import annotations
 
 import argparse
+import base64
 from functools import partial
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 import json
@@ -32,9 +33,12 @@ def main() -> None:
     parser.add_argument("--browser", choices=("chromium", "firefox", "webkit"), default="chromium")
     parser.add_argument("--browser-executable", type=Path,
                         help="Optional existing executable for the selected browser engine")
+    parser.add_argument("--golden-only", action="store_true",
+                        help="Run original-shader golden comparisons instead of the app controls")
     args = parser.parse_args()
-    if not (args.build / "GSSquared.html").is_file():
-        raise SystemExit("Packaged GSSquared.html missing")
+    page_name = "postprocessgoldentest.html" if args.golden_only else "GSSquared.html"
+    if not (args.build / page_name).is_file():
+        raise SystemExit(f"Packaged {page_name} missing")
     args.output.mkdir(parents=True, exist_ok=True)
     server = ThreadingHTTPServer(("127.0.0.1", 0), partial(Handler, directory=str(args.build.resolve())))
     thread = threading.Thread(target=server.serve_forever, daemon=True)
@@ -83,8 +87,39 @@ def main() -> None:
             page = browser.new_page(viewport={"width": 1288, "height": 928})
             page.on("console", lambda msg: logs.append(f"{msg.type}: {msg.text}"))
             page.on("pageerror", lambda error: page_errors.append(str(error)))
-            page.add_init_script(initialize)
+            # Keep interception enabled across navigation. Enabling it only at
+            # the click races the app's deferred SDL event/frame callback.
+            page.on("filechooser", lambda chooser: None)
+            if not args.golden_only:
+                page.add_init_script(initialize)
             try:
+                if args.golden_only:
+                    page.goto(f"http://127.0.0.1:{server.server_port}/{page_name}", wait_until="domcontentloaded")
+                    page.wait_for_function("window.gs2GoldenTest && ['passed', 'failed'].includes(window.gs2GoldenTest.status)",
+                                           timeout=120_000)
+                    result = page.evaluate("window.gs2GoldenTest")
+                    artifacts = page.evaluate(r"""() => {
+                        if (!FS.analyzePath('/golden-artifacts').exists) return {};
+                        const result = {};
+                        for (const name of FS.readdir('/golden-artifacts')) {
+                            if (name === '.' || name === '..') continue;
+                            const bytes = FS.readFile('/golden-artifacts/' + name);
+                            let binary = '';
+                            for (let i = 0; i < bytes.length; i += 8192)
+                                binary += String.fromCharCode(...bytes.subarray(i, i + 8192));
+                            result[name] = btoa(binary);
+                        }
+                        return result;
+                    }""")
+                    for name, data in artifacts.items():
+                        (args.output / Path(name).name).write_bytes(base64.b64decode(data))
+                    (args.output / "result.json").write_text(json.dumps(result, indent=2) + "\n")
+                    assert not page_errors, page_errors
+                    assert result["status"] == "passed", result
+                    assert result["comparisons"] > 0, result
+                    assert "WebGL2" in result["backend"], result
+                    print(json.dumps({"browser": args.browser, **result}, indent=2))
+                    return
                 page.goto(f"http://127.0.0.1:{server.server_port}/GSSquared.html", wait_until="domcontentloaded")
                 page.wait_for_function("window.runtimeReady === true", timeout=120_000)
                 page.locator("#overlay").click()
@@ -93,7 +128,7 @@ def main() -> None:
                 version = page.evaluate("document.getElementById('canvas').getContext('webgl2').getParameter(0x1F02)")
                 assert "WebGL 2" in version, version
                 assert not page_errors, page_errors
-                assert any("Postprocessing: WebGL2" in line for line in logs), "SuperDuperDisplay WebGL2 backend did not initialize"
+                assert any("Postprocessing: WebGL2" in line for line in logs), "Postprocessing WebGL2 backend did not initialize"
                 assert any("Appletini RamWorks: 8MB auxiliary expansion enabled" in line for line in logs), "Appletini guest configuration did not start"
                 failures = [line for line in logs if any(term in line for term in
                     ("Postprocessing shader:", "Postprocessing shader link:", "Postprocessing unavailable", "Postprocessing presentation failed"))]
@@ -180,6 +215,14 @@ def main() -> None:
                     click_action(3)  # Import, then cancel
                 page.locator("input[type=file]").dispatch_event("cancel")
                 page.wait_for_timeout(300)
+                settings_before_invalid_import = current_settings()
+                with page.expect_file_chooser() as invalid_picker:
+                    click_action(3)
+                invalid_picker.value.set_files({"name": "invalid-preset.json", "mimeType": "application/json",
+                                                "buffer": b'{ invalid json'})
+                page.wait_for_timeout(600)
+                assert not page_errors, page_errors
+                assert current_settings() == settings_before_invalid_import, "Malformed preset changed the active settings"
                 with page.expect_file_chooser() as picker:
                     click_action(3)
                 imported = {"preset_name": "CI imported preset", "p_i_postprocessingLevel": 2,

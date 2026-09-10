@@ -165,7 +165,7 @@ void shutdown_socket(DebugSocketHandle fd) {
         ::shutdown(native_socket(fd), SD_BOTH);
     }
 }
-#else
+#elif GS2_DEBUG_PROTO_UNIX
 void close_socket(DebugSocketHandle fd) {
     if (fd != kInvalidSocket) {
         ::close(static_cast<int>(fd));

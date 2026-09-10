@@ -587,12 +587,17 @@ void video_system_t::present_scene() {
     postprocessor->begin_ui(frame);
 }
 
-bool video_system_t::recreate_postprocessor() {
+void video_system_t::release_postprocessor() {
     if(screencap_texture) SDL_DestroyTexture(screencap_texture);
     screencap_texture=nullptr;
     if(guest_overlay_texture) SDL_DestroyTexture(guest_overlay_texture);
     guest_overlay_texture=nullptr;guest_overlay_generation=UINT64_MAX;
     last_texture=nullptr;scene_target=nullptr;
+    postprocessor->release_renderer();renderer=nullptr;gpu_device=nullptr;
+}
+
+bool video_system_t::recreate_postprocessor() {
+    release_postprocessor();
     bool okay=postprocessor->recreate();
     renderer=postprocessor->renderer();gpu_device=postprocessor->device();
     int w=0,h=0;SDL_GetWindowSizeInPixels(window,&w,&h);

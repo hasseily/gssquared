@@ -1,4 +1,4 @@
-# postprocessing
+# Postprocessing
 
 While a machine is running, open **Display → Postprocessing** or press
 **Shift+F7**. **F7** toggles full effects on and off. The controls preview changes

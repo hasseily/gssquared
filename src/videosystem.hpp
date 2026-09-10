@@ -162,6 +162,7 @@ public:
     const std::string& postprocess_status() const { return postprocessor->status(); }
     void postprocess_settings_changed() { postprocessor->settings_changed(); crt_shader_enabled = postprocessor->settings().p_i_postprocessingLevel != 0; }
     void set_postprocess_assets(const std::string& bezel, const std::string& glass) { postprocessor->set_assets(bezel, glass); }
+    void release_postprocessor();
     bool recreate_postprocessor();
     bool set_vsync(int enabled) { return postprocessor->set_vsync(enabled); }
     void begin_host_ui();

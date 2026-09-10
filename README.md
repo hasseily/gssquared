@@ -31,6 +31,12 @@ It uses the SDL3 library for graphics, sound, and I/O. This is a video game-orie
 
 Check out the [User Documentation](Docs/index.md) for detailed instructions on how to use GSSquared.
 
+This fork adds [Appletini ONE firmware 1.0.8 compatibility](Docs/Appletini_Compatibility.md)
+and [Postprocessing](Docs/DisplayEffects.md), including CRT effects, bezels,
+glass and portable presets. Open **Display → Postprocessing** or press
+**Shift+F7** while a machine is running. See [validation and package builds](Docs/Validation.md)
+for the native and browser build instructions and tests.
+
 # Pre-compiled Packages
 
 A binary release is available at [https://github.com/jawaidbazyar2/gssquared/releases](https://github.com/jawaidbazyar2/gssquared/releases).

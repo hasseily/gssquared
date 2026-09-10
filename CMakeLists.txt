@@ -203,6 +203,9 @@ function(configure_sdl_builds)
         set(SDL_SHARED OFF)
         set(SDL_STATIC ON)
         set(SDL_TEST OFF)
+        # This application already requires pthreads/SharedArrayBuffer. SDL
+        # defaults this option off on Emscripten unless explicitly requested.
+        set(SDL_PTHREADS ON CACHE BOOL "Enable SDL threads for the web application" FORCE)
         set(SDLIMAGE_VENDORED ON)
         set(SDLTTF_VENDORED ON)
         # We only need PNG (atlas / IBM_VGA font). Disable the heavy optional
@@ -251,7 +254,17 @@ function(configure_sdl_builds)
     # we exclude from the web build, so skip building it entirely there.
     if(NOT EMSCRIPTEN)
         set(GS2_SDL_NET_SOURCE_DIR "${CMAKE_SOURCE_DIR}/vendored/SDL_net" CACHE PATH "Unmodified SDL_net source directory")
-    add_subdirectory("${GS2_SDL_NET_SOURCE_DIR}" "${CMAKE_BINARY_DIR}/_deps/SDL_net-build")
+        add_subdirectory("${GS2_SDL_NET_SOURCE_DIR}" "${CMAKE_BINARY_DIR}/_deps/SDL_net-build")
+        if(MINGW)
+            # MinGW's optional POSIX aliases collide with SDL_net's private
+            # Windows socket read/write helpers. Keep its sources unmodified
+            # and disable only those legacy CRT names for this dependency.
+            foreach(gs2_net_target SDL3_net-shared SDL3_net-static)
+                if(TARGET ${gs2_net_target})
+                    target_compile_definitions(${gs2_net_target} PRIVATE NO_OLDNAMES)
+                endif()
+            endforeach()
+        endif()
     endif()
     set(BUILD_SHARED_LIBS OFF)
 endfunction()
@@ -274,8 +287,10 @@ set(CMAKE_CXX_STANDARD_REQUIRED True)
 # pthreads binary against objects built without them. Set this before any
 # targets (including the vendored SDL subdirectories) are created.
 if(EMSCRIPTEN)
-    add_compile_options(-pthread)
-    add_link_options(-pthread)
+    add_compile_options(-pthread -fwasm-exceptions)
+    add_link_options(-pthread -fwasm-exceptions)
+    # Preset/configuration JSON parsing uses C++ exceptions for recoverable
+    # validation errors. Emscripten otherwise disables catching and aborts.
 endif()
 
 configure_sdl_builds()
@@ -795,12 +810,18 @@ if(NOT EMSCRIPTEN)
         find_package(OpenGL REQUIRED)
     endif()
     add_subdirectory(apps/postprocesstest)
+    if(APPLE)
+        add_subdirectory(apps/postprocessreferencetest)
+    endif()
     add_subdirectory(apps/postprocesspresettest)
     add_subdirectory(apps/postprocesscontroltest)
     add_subdirectory(apps/capturetest)
     add_subdirectory(apps/renderresourcetest)
     add_subdirectory(apps/videoscanregressiontest)
 endif()
+
+# Original-image parity runs against every production GPU backend.
+add_subdirectory(apps/postprocessgoldentest)
 
 ################################################################################
 #### Platform Specific Code

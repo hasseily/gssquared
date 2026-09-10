@@ -38,6 +38,7 @@ int main(int argc,char** argv) {
         pp::PostProcessor processor(window);std::puts(processor.status().c_str());
         if(!processor.available())return strict?1:77;
         if(require_gl)require(processor.device()==nullptr,"OpenGL fallback must be selected");
+        else if(strict)require(processor.device()!=nullptr,"native GPU backend must be selected");
         auto* r=processor.renderer();
         pp::FrameView frame;frame.source_width=560;frame.source_height=192;frame.scanlines=192;frame.fields_already_composed=false;
         auto draw=[&](bool lit=true){
@@ -114,8 +115,16 @@ int main(int argc,char** argv) {
         require(processor.map_output_to_scene(x,y)&&std::abs(x-256)<.01f&&std::abs(y-192)<.01f,"mouse maps image center through zoom and translation");
         processor.set_assets("","");settings=pp::Settings{};processor.settings_changed();draw();
         auto final=bytes(processor.capture_processed());require(final==plain,"capture compositor preserves plain decoded colors");
+        settings.p_i_postprocessingLevel=2;settings.p_f_scanlineWeight=0;
+        settings.p_f_brightness=.75f;processor.settings_changed();auto before_recreation=draw();
+        require(before_recreation!=plain,"active brightness fixture differs before recreation");
+        const auto* settings_address=&settings;
         require(processor.recreate(),"graphics device recreation");r=processor.renderer();
-        processor.settings()=pp::Settings{};auto recreated=draw();require(recreated==plain,"renderer recreation restores valid clear history and frame");
+        require(&processor.settings()==settings_address,"settings references remain valid across renderer recreation");
+        require(settings.p_f_brightness==.75f,"renderer recreation preserves live settings values");
+        require(draw()==before_recreation,"renderer recreation retains the active effect settings");
+        settings=pp::Settings{};processor.settings_changed();
+        auto recreated=draw();require(recreated==plain,"editing retained settings reference updates the recreated renderer");
         // Missing imported assets must not be decoded again on every frame.
         // Explicitly reloading the same preset retries repaired files.
         auto temp=std::filesystem::temp_directory_path()/("gs2-postprocess-assets-"+std::to_string(SDL_GetPerformanceCounter()));

@@ -34,6 +34,9 @@ public:
     void settings_changed();
     void set_assets(const std::string& bezel_path, const std::string& glass_path);
     void reset_history();
+    // Release GPU objects while a lost context still accepts no-op deletes.
+    // Settings and requested assets remain available until recreation.
+    void release_renderer();
     bool recreate();
     bool set_vsync(int enabled);
     // Maps drawable pixels through CRT geometry back into the original scene.
@@ -49,6 +52,8 @@ public:
     SDL_Surface* capture_crt();
 
 private:
+    // Controls retain references to settings while graphics resources are rebuilt.
+    Settings settings_;
     struct Impl;
     std::unique_ptr<Impl> impl_;
 };

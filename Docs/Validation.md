@@ -3,8 +3,14 @@
 `.github/workflows/validate.yml` builds the exact pushed commit (or pull request
 head, rather than a synthetic merge commit) on macOS ARM64, macOS Intel,
 Windows MinGW64, Linux, and Emscripten. Each native build runs all registered
-CTest cases, requires the actual GPU postprocessor regression to pass, and
-runs `scripts/test_appletini_guest.py` against the built emulator. The latter
+CTest cases and `scripts/test_appletini_guest.py` against the built emulator.
+ARM64 macOS, Windows and Linux additionally require the actual GPU regression
+and comparisons with original-shader golden images to pass. The hosted Intel
+Mac has no supported GPU, so that job validates the CPU build, guest behavior
+and package; it reports this limitation explicitly. Its downloaded Intel
+graphics tests and app can be run under Rosetta on an Apple Silicon Mac to
+exercise the x86 executable with Metal. That is a translated CPU test on an
+Apple GPU, not a test on Intel graphics hardware. The guest smoke test
 boots a fresh Appletini machine, calls the bundled SmartPort ROM with 6502
 code, and checks RAM32, mounted unit 8, 2MG offsets, reset, RamWorks mapping,
 and LINTXT detection. It uses the debugger's QUIT command on completion.
@@ -30,8 +36,9 @@ the settings panel and effects, and produce a nonblank frame. The static
 panel pixels are compared before and after recovery. Screenshots and browser
 logs are retained as workflow artifacts.
 The same test uses the canvas controls to select a preset, type a numeric
-value, scroll, save a new preset, cancel and reopen the import picker, import
-a JSON file, and verify the exported browser download.
+value, scroll, save a new preset, cancel and reopen the import picker, reject
+malformed JSON without interrupting emulation or changing settings, import a
+valid JSON file, and verify the exported browser download.
 Playwright WebKit covers that browser engine; it is not a Safari product test.
 `renderresourcetest` independently replaces the renderer three times and
 compares the exact frame, asset atlas, and font-rendering output.
@@ -39,6 +46,10 @@ compares the exact frame, asset atlas, and font-rendering output.
 Every build checks that the committed vendored revisions and tracked source
 files remain unchanged. SDL 3.4.16 is fetched into the build directory using
 the pinned archive hash; it does not replace or patch `vendored/SDL`.
+
+The [Postprocessing reference validation](PostprocessingReference.md) describes
+the independent original-shader comparisons, numerical tolerances, known
+floating-point boundary differences, and measured 1080p/4K performance.
 
 ## Local commands
 

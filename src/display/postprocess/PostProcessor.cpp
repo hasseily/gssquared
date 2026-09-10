@@ -11,6 +11,7 @@
 #include <vector>
 #if defined(__EMSCRIPTEN__)
 #include <GLES3/gl3.h>
+#include <emscripten/html5_webgl.h>
 #elif defined(__linux__)
 #define GL_GLEXT_PROTOTYPES 1
 #include <SDL3/SDL_opengl.h>
@@ -51,7 +52,7 @@ struct PostProcessor::Impl {
     uint64_t frame_count=0,merge_count=0,last_identity=0;
     bool history_valid=false,merge_was_active=false,ui_started=false;
     int vsync=1;
-    Settings settings;
+    Settings& settings;
     FrameView frame;
     std::string message="Postprocessing is unavailable";
     std::string requested_bezel,requested_glass,loaded_bezel,loaded_glass;
@@ -62,7 +63,7 @@ struct PostProcessor::Impl {
     unsigned gl_crt=0,gl_composite=0,gl_vao=0,gl_ubo=0,gl_fbo=0;
 #endif
 
-    explicit Impl(SDL_Window* w):window(w) {
+    explicit Impl(SDL_Window* w, Settings& s):window(w),settings(s) {
 #ifndef __EMSCRIPTEN__
         if (init_native()) return;
         cleanup();
@@ -426,7 +427,7 @@ struct PostProcessor::Impl {
 #endif
 };
 
-PostProcessor::PostProcessor(SDL_Window* window):impl_(std::make_unique<Impl>(window)){}
+PostProcessor::PostProcessor(SDL_Window* window):impl_(std::make_unique<Impl>(window,settings_)){}
 PostProcessor::~PostProcessor()=default;
 SDL_Renderer* PostProcessor::renderer() const{return impl_->renderer;}
 SDL_GPUDevice* PostProcessor::device() const{return impl_->gpu;}
@@ -442,12 +443,12 @@ void PostProcessor::set_assets(const std::string& b,const std::string& g){
     // Failed loads otherwise retain their transparent placeholder across frames.
     impl_->assets_dirty=true;
 }
+void PostProcessor::release_renderer(){impl_->cleanup();}
 bool PostProcessor::recreate(){
-    auto settings=impl_->settings;
     auto bezel=impl_->requested_bezel,glass=impl_->requested_glass;
     bool explicit_assets=impl_->explicit_assets;auto* window=impl_->window;int vsync=impl_->vsync;
-    impl_.reset();impl_=std::make_unique<Impl>(window);
-    impl_->settings=std::move(settings);impl_->requested_bezel=std::move(bezel);
+    impl_.reset();impl_=std::make_unique<Impl>(window,settings_);
+    impl_->requested_bezel=std::move(bezel);
     impl_->requested_glass=std::move(glass);impl_->explicit_assets=explicit_assets;set_vsync(vsync);
     // A plain SDL renderer still lets the guest and host UI resume after a
     // context reset. Effects availability is reported separately by status().
@@ -508,6 +509,11 @@ void PostProcessor::begin_ui(const FrameView& frame){
 }
 bool PostProcessor::present(){
     auto& p=*impl_;
+#ifdef __EMSCRIPTEN__
+    // The loss event may be queued after the browser has invalidated GL.
+    // This is an expected pause; resource rebuilding follows its callback.
+    if(emscripten_is_webgl_context_lost(emscripten_webgl_get_current_context()))return false;
+#endif
     if(!available())return SDL_RenderPresent(p.renderer);
     if(!p.scene.sdl)return false;
     // During startup there may not be a display handler or an OSD frame yet.

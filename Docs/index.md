@@ -12,6 +12,8 @@
 
 * [Displays](Displays.md)
 
+* [Postprocessing](DisplayEffects.md) — CRT effects, bezels, glass and presets
+
 * [Storage & Disks](Storage.md)
 
 * [Host FST](HostFST.md) — share a host folder with GS/OS
@@ -31,6 +33,10 @@
 ## Cards
 
 Slot cards and how to use them:
+
+* [Appletini ONE](Appletini_Compatibility.md) — firmware 1.0.8 compatibility, slot-7 SmartPort, RamWorks and acceleration
+
+* [Appletini linear text](Appletini_LinearText.md) — text overlay programming and comparison with VOC
 
 * [Uthernet II](Cards_UthernetII.md) — Ethernet / TCP/IP
 

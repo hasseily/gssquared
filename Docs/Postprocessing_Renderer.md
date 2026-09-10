@@ -41,6 +41,11 @@ pair-merge control, preventing a second average. Host UI is never retained in
 phosphor history. Absolute IIgs mouse coordinates use the same image zoom,
 translation, curvature and barrel distortion as rendering.
 
+Settings outlive renderer resources, so open controls retain valid references
+through graphics recovery. The browser releases old graphics objects when the
+context is lost, then recreates the renderer and registered resources after
+restoration. Guest RAM, CPU state and current settings remain intact.
+
 Missing or unreadable bezel/glass assets use a transparent fallback and report
 the error without retrying file loads each frame. Explicitly reloading the
 preset retries the same paths after files are repaired; renderer recreation
@@ -72,7 +77,9 @@ formats before release. The reference files are documentation, not shader inputs
 
 ## Regression checks
 
-`postprocesstest --require-gpu` checks real GPU rendering: quadrant orientation and
+`postprocesstest --require-gpu` requires native SDL GPU rendering through Metal,
+Direct3D 12 or Vulkan. `--require-opengl` requires the Linux fallback explicitly.
+These checks cover quadrant orientation and
 colors, complete imported SuperDuperDisplay presets, retained visible CRT content, final bezel/glass
 composition, mipmaps, phosphor history/reset, the composed-field merge guard, mouse
 geometry, and renderer recreation. `GS2_TEST_ARTIFACT_DIR` stores preset BMP fixtures;

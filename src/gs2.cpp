@@ -106,12 +106,14 @@
 OSD *osd = nullptr;
 
 #if defined(__EMSCRIPTEN__)
+static void release_web_graphics();
 static bool web_context_lost = false;
 static bool web_context_restore_pending = false;
 static unsigned web_context_recovery_count = 0;
 static int web_context_preserved_state = 0;
 extern "C" EMSCRIPTEN_KEEPALIVE void gs2_webgl_context_lost() {
     web_context_lost = true;
+    release_web_graphics();
 }
 extern "C" EMSCRIPTEN_KEEPALIVE void gs2_webgl_context_restored() {
     web_context_restore_pending = true;
@@ -693,6 +695,22 @@ struct GS2AppState {
     MMU_IIgs *mmu_iigs = nullptr;
 };
 
+#if defined(__EMSCRIPTEN__)
+static GS2AppState* web_app_state = nullptr;
+static SDL_Renderer* web_previous_renderer = nullptr;
+static void release_web_graphics() {
+    if (!web_app_state || !web_app_state->computer) return;
+    auto* vs = web_app_state->computer->video_system;
+    if (!vs || !vs->renderer) return;
+    web_previous_renderer = vs->renderer;
+    // Delete old-generation objects while the context is lost, before the
+    // browser restores it and starts rejecting those object handles.
+    shutdownMenuRenderer();
+    RendererResource::release_all(web_previous_renderer);
+    vs->release_postprocessor();
+}
+#endif
+
 void transition_to_emulation(GS2AppState *state, const SystemConfig_t *system_config, int builtin_system_id);
 
 static bool apply_system_config_file(GS2AppState *state, const std::string& path, std::string& error_out) {
@@ -1099,6 +1117,9 @@ SDL_AppResult SDL_AppInit(void **appstate, int argc, char **argv) {
     SDL_SetHint(SDL_HINT_MAC_SCROLL_MOMENTUM, "1");
 
     GS2AppState *state = new GS2AppState();
+#if defined(__EMSCRIPTEN__)
+    web_app_state = state;
+#endif
     
     int platform_id = PLATFORM_APPLE_II_PLUS;  // default to Apple II Plus
     bool platform_explicit = false;            // true when -p was given on CLI
@@ -1303,7 +1324,11 @@ SDL_AppResult SDL_AppInit(void **appstate, int argc, char **argv) {
 
 SDL_AppResult SDL_AppEvent(void *appstate, SDL_Event *event) {
 #if defined(__EMSCRIPTEN__)
-    if (web_context_lost && event->type != SDL_EVENT_QUIT) return SDL_APP_CONTINUE;
+    if (web_context_lost) {
+        // The renderer is released until restoration; even quit confirmation
+        // UI must not dispatch through it during this interval.
+        return event->type == SDL_EVENT_QUIT ? SDL_APP_SUCCESS : SDL_APP_CONTINUE;
+    }
 #endif
     GS2AppState *state = (GS2AppState *)appstate;
 
@@ -1381,15 +1406,14 @@ SDL_AppResult SDL_AppIterate(void *appstate) {
     if (web_context_restore_pending) {
         video_system_t* vs = state->computer->video_system;
         const auto fingerprint = guest_ram_fingerprint(state->computer);
-        SDL_Renderer* previous = vs->renderer;
-        shutdownMenuRenderer();
-        RendererResource::release_all(previous);
+        SDL_Renderer* previous = web_previous_renderer;
         if (!vs->recreate_postprocessor()) {
             web_context_restore_pending = false;
             SDL_Log("WebGL renderer recreation failed: %s", SDL_GetError());
             return SDL_APP_CONTINUE;
         }
         RendererResource::restore_all(previous, vs->renderer);
+        web_previous_renderer = nullptr;
         initMenu(vs->window, vs->renderer);
         if (state->select_system) state->select_system->mark_dirty();
         if (state->edit_system) state->edit_system->mark_dirty();
@@ -1531,6 +1555,9 @@ SDL_AppResult SDL_AppIterate(void *appstate) {
 }
 
 void SDL_AppQuit(void *appstate, SDL_AppResult result) {
+#if defined(__EMSCRIPTEN__)
+    web_app_state = nullptr;
+#endif
     //(void)result;
     GS2AppState *state = (GS2AppState *)appstate;
     if (!state) return;

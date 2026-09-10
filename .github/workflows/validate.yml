@@ -89,18 +89,27 @@ jobs:
           else
             ctest --test-dir build --output-on-failure --no-tests=error --output-junit ctest.xml
           fi
-      - name: Require GPU effects and run real Appletini guest smoke
+      - name: Validate graphics and run real Appletini guest smoke
         env:
           SDL_AUDIODRIVER: dummy
+          GS2_CI_RUNNER: ${{ matrix.runner }}
         run: |
           export GS2_TEST_RESOURCE_PATH="$PWD/build/resources"
           export GS2_TEST_ARTIFACT_DIR="$PWD/build/smoke"
           if [ "$RUNNER_OS" = Linux ]; then
             xvfb-run -a build/postprocesstest --require-gpu
+            xvfb-run -a build/postprocessgoldentest --require-gpu
             SDL_GPU_DRIVER=unavailable GS2_TEST_ARTIFACT_DIR="$PWD/build/smoke/opengl" xvfb-run -a build/postprocesstest --require-opengl
+            SDL_GPU_DRIVER=unavailable GS2_TEST_ARTIFACT_DIR="$PWD/build/smoke/opengl" xvfb-run -a build/postprocessgoldentest --require-opengl
             xvfb-run -a python scripts/test_appletini_guest.py --executable build/GSSquared
           else
-            build/postprocesstest --require-gpu
+            if [ "$GS2_CI_RUNNER" = macos-15-intel ]; then
+              echo "Hosted Intel macOS has no GPU device; this job validates CPU, build and packaging."
+              echo "Intel Metal and golden-image validation requires the uploaded binaries on a GPU-capable Mac."
+            else
+              build/postprocesstest --require-gpu
+              build/postprocessgoldentest --require-gpu
+            fi
             python scripts/test_appletini_guest.py --executable build/GSSquared
           fi
       - name: Package and test macOS app
@@ -140,6 +149,9 @@ jobs:
             build/Testing/Temporary/
             build/smoke/
             build/GSSquared
+            build/postprocesstest
+            build/postprocessgoldentest
+            build/postprocess-goldens/
             build/lib/
             build/resources/
           retention-days: 7
@@ -201,6 +213,7 @@ jobs:
           export GS2_TEST_RESOURCE_PATH="$(cygpath -m "$PWD/build/resources")"
           export GS2_TEST_ARTIFACT_DIR="$(cygpath -m "$PWD/build/smoke")"
           SDL_GPU_DRIVER=direct3d12 build/postprocesstest.exe --require-gpu
+          SDL_GPU_DRIVER=direct3d12 build/postprocessgoldentest.exe --require-gpu
           python scripts/test_appletini_guest.py --executable build/GSSquared.exe
       - name: Package and test Windows ZIP
         shell: msys2 {0}
@@ -227,6 +240,10 @@ jobs:
             build/Testing/Temporary/
             build/smoke/
             build/GSSquared.exe
+            build/postprocesstest.exe
+            build/postprocessgoldentest.exe
+            build/postprocess-goldens/
+            build/SDL3*.dll
             build/lib/
             build/resources/
           retention-days: 7
@@ -259,7 +276,7 @@ jobs:
       - name: Build web package
         run: |
           emcmake cmake -S . -B build-web -DCMAKE_BUILD_TYPE=Release
-          cmake --build build-web --target GSSquared --parallel 3
+          cmake --build build-web --target GSSquared postprocessgoldentest --parallel 3
       - name: Browser effects smoke
         env:
           LIBGL_ALWAYS_SOFTWARE: '1'
@@ -269,6 +286,9 @@ jobs:
           failed=0
           for browser in chromium firefox webkit; do
             if ! python scripts/ci/browser_smoke.py --browser "$browser" --output "build-web/smoke/$browser"; then
+              failed=1
+            fi
+            if ! python scripts/ci/browser_smoke.py --golden-only --browser "$browser" --output "build-web/smoke/$browser/goldens"; then
               failed=1
             fi
           done
