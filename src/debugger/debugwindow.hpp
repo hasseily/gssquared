@@ -36,22 +36,23 @@ enum debug_panel_t {
 struct debug_window_t {
     computer_t *computer;
     cpu_state *cpu;
-    SDL_Window *window;
-    SDL_Renderer *renderer;
+    SDL_Window *window = nullptr;
+    SDL_Renderer *renderer = nullptr;
     int window_width = 800;
     int window_height = 800;
     int window_margin = 5;
     int control_area_height = 100;
     int lines_in_view_area = 10;
-    SDL_WindowID window_id;
+    SDL_WindowID window_id = 0;
     bool window_open = false;
     int view_position = 0;
     
-    TextRenderer *text_renderer;
-    UIContext ui_ctx;
+    TextRenderer *text_renderer = nullptr;
+    UIContext ui_ctx{};
     int font_line_height = 14;
     std::vector<Container_t *> containers;
-    Container_t *tab_container, *step_container;
+    Container_t *tab_container = nullptr;
+    Container_t *step_container = nullptr;
     WrapContainer_t *debug_display_container = nullptr;
     WrapContainer_t *video_preset_container_ = nullptr;
     Container_t *video_controls_container_ = nullptr;
@@ -68,7 +69,7 @@ struct debug_window_t {
     int panel_visible[DEBUG_PANEL_COUNT] = {0};
     SDL_Rect pane_area[DEBUG_PANEL_COUNT];
 
-    TextInput_t* mon_textinput;
+    TextInput_t* mon_textinput = nullptr;
     ScrollBar_t *trace_scroll_ = nullptr;
     ScrollBar_t *mon_scroll_ = nullptr;
     ScrollBar_t *video_scroll_ = nullptr;
