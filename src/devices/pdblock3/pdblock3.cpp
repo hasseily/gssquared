@@ -23,6 +23,8 @@
 #include <vector>
 #include <memory>
 #include "devices/pdblock3/AppletiniSmartPort.hpp"
+#include "devices/pdblock3/AppletiniRamWorksConfig.hpp"
+#include "devices/iiememory/iiememory.hpp"
 #include "gs2.hpp"
 #include "cpu.hpp"
 #include "mmus/mmu_ii.hpp"
@@ -964,6 +966,10 @@ void init_appletini(computer_t *computer, SlotType_t slot)
     register_smartport_drives(computer, slot, pdblock_d);
 
     const SystemConfig_t *config = computer->get_system();
+    if (config != nullptr && should_enable_appletini_ramworks(*config)
+        && !iiememory_enable_appletini_ramworks(computer)) {
+        throw std::runtime_error("Appletini could not initialize its 8MB RamWorks expansion");
+    }
     computer->mmu->set_C8xx_handler(slot, map_rom_appletini, pdblock_d);
 
     const AppletiniConfig settings = config ? config->appletini : AppletiniConfig{};

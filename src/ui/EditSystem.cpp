@@ -237,13 +237,13 @@ EditSystem::EditSystem(video_system_t *vs, AssetAtlas_t *aa)
     appletini_con = new Container_t(&ui_ctx, SC);
     appletini_con->set_position(360 + layout_dx, 625 + body_dy);
     appletini_con->size(230, 136);
-    const char* option_names[] = {"RAM32 disk"};
-    for (int i = 0; i < 1; ++i) {
+    const char* option_names[] = {"RAM32 disk", "8 MB RamWorks"};
+    for (int i = 0; i < 2; ++i) {
         auto* toggle = new SelectButton_t(&ui_ctx, option_names[i], CB, i);
         toggle->size(218, 28);
         toggle->on_click([this, i, toggle](const SDL_Event&) {
             auto& a = draft.config().appletini;
-            bool* setting = &a.ram32;
+            bool* setting = i == 0 ? &a.ram32 : &a.ramworks;
             *setting = !*setting;
             toggle->set_active(*setting);
             updated = true;
@@ -410,8 +410,8 @@ void EditSystem::rebuild_ui_from_draft() {
     }
     platform_con->selected_value(draft.config().platform_id);
     const auto& a = draft.config().appletini;
-    const bool options[] = {a.ram32};
-    for (int i = 0; i < 1; ++i) appletini_con->get_tile(i)->set_active(options[i]);
+    const bool options[] = {a.ram32, a.ramworks};
+    for (int i = 0; i < 2; ++i) appletini_con->get_tile(i)->set_active(options[i]);
     refresh_badge();
     updated = true;
 }

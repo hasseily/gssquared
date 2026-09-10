@@ -528,7 +528,8 @@ bool SystemConfig::load_settings(const std::string& path, std::string& error_out
     for (const auto& [key, value] : entries) {
         if (key.rfind("appletini.", 0) == 0) {
             const auto name = key.substr(10);
-            bool* target = name == "ram32" ? &config_data_.appletini.ram32 : nullptr;
+            bool* target = name == "ram32" ? &config_data_.appletini.ram32 :
+                name == "ramworks" ? &config_data_.appletini.ramworks : nullptr;
             if (target) {
                 const auto v = to_lower(value);
                 if (v != "true" && v != "false" && v != "on" && v != "off" && v != "1" && v != "0") {

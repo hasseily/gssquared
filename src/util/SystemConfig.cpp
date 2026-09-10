@@ -577,7 +577,8 @@ bool SystemConfig::save(const std::string& path, std::string& error_out) {
     if (config_data_.slot_devices[SLOT_7] == DEVICE_ID_APPLETINI) {
         const auto& a = config_data_.appletini;
         out << "\n[appletini]\n" << std::boolalpha
-            << "ram32 = " << a.ram32 << "\n";
+            << "ram32 = " << a.ram32 << "\n"
+            << "ramworks = " << a.ramworks << "\n";
     }
 
 
@@ -813,7 +814,8 @@ bool SystemConfig::load_gs2(const std::string& path, std::string& error_out) {
         if (!settings) { error_out = "appletini must be a table"; return false; }
         for (const auto& [key, value] : *settings) {
             const std::string name(key.str());
-            bool* target = name == "ram32" ? &config_data_.appletini.ram32 : nullptr;
+            bool* target = name == "ram32" ? &config_data_.appletini.ram32 :
+                name == "ramworks" ? &config_data_.appletini.ramworks : nullptr;
             if (!target) { warnings_.push_back("Unknown Appletini setting: " + name); continue; }
             const auto boolean = value.value<bool>();
             if (!boolean) { error_out = "Appletini " + name + " must be boolean"; return false; }

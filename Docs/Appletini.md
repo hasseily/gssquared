@@ -27,3 +27,11 @@ under its GPL-3.0 license (the same license as GSSquared):
 write protection, malformed requests, and RAM32 formatting/reset persistence.
 These are firmware-contract checks; they do not establish physical-card timing
 or hardware DMA equivalence.
+
+On the standard and enhanced IIe, Appletini also supplies 128 selectable 64 KB
+auxiliary banks (8 MB total). C071/C073 select banks 0–127; values with bit 7 set
+are ignored. ALTZP/language-card and 80STORE/PAGE2 follow the selected bank.
+Video continues to read bank 0. Reset selects bank 0 without clearing contents.
+`[appletini] ramworks = false` disables this extension; an independently selected
+memory expansion takes precedence. Other machine platforms keep their own
+memory implementations.
