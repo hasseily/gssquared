@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.10)
+cmake_minimum_required(VERSION 3.16)
 
 # Prefer Clang over GCC on Linux/Mac. Must happen before project() so CMake
 # hasn't already detected and cached the default system compiler.
