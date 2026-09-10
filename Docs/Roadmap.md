@@ -91,7 +91,8 @@
 
 ## Release 1.0
 
-[ ] implement shaders on Linux
+[X] implement shaders on Linux
+[ ] Full international keyboard support for GS
 [ ] Fix all known / pending bugs  
 
 
@@ -99,3 +100,4 @@
 
 [ ] Refactor MB to use new fixed-point synth  
 [ ] Optimize / cache UI elements  
+[ ] AppleTalk-shaped Host folder / network file server support for ProDOS

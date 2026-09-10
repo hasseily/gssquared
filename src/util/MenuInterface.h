@@ -60,6 +60,7 @@ public:
 	void openSystemConfig();
 
 	void setControllerMode(int mode);
+	void setJoyportSelect(int select);
 
 	int  getCurrentSpeed();
 	int  getCurrentMonitor();
@@ -79,6 +80,7 @@ public:
 	bool hasSecondSight();
 	bool getMountDrivers();
 	int  getCurrentControllerMode();
+	int  getJoyportSelect();
 	std::vector<MenuDriveInfo> getDriveList();
 };
 

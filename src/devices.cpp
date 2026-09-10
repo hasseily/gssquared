@@ -45,6 +45,7 @@
 #include "devices/hostfst/hostfst.hpp"
 #include "devices/uthernet2/uthernet2.hpp"
 #include "devices/ssc/ssc.hpp"
+#include "devices/voc/voc.hpp"
 
 namespace {
 
@@ -106,6 +107,7 @@ Device_t Devices[NUM_DEVICE_IDS] = {
     make_device(DEVICE_ID_UTHERNET2, init_slot_uthernet2, NULL),
     make_device(DEVICE_ID_SUPER_SERIAL, init_slot_ssc, NULL),
     make_device(DEVICE_ID_APPLETINI, init_appletini, NULL),
+    make_device(DEVICE_ID_VOC, init_voc, NULL),
 };
 
 Device_t *get_device(device_id id) {

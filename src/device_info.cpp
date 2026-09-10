@@ -61,6 +61,7 @@ static const DeviceInfo_t DeviceInfos[NUM_DEVICE_IDS - 1] = {
             | PLATFLAG_ANY_IIGS},
     {DEVICE_ID_SUPER_SERIAL, "Apple Super Serial Card", true, 0b11111110, PLATFLAG_ALL},
     {DEVICE_ID_APPLETINI, "Appletini", false, 0b10000000, PLATFLAG_ALL},
+    {DEVICE_ID_VOC, "Video Overlay Card", false, 0b00001000, PLATFLAG_ANY_IIGS},
 };
 
 const DeviceInfo_t *get_device_info(device_id id) {

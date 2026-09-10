@@ -119,17 +119,17 @@ Additional notes: 5.25 Floppy does not support quarter or half tracks.
 |--------|--------|-------|
 | Printer / parallel port | Work in progress | Right now just dumps binary data to file, no processsing or printer emulation |
 | Printer / serial port | Partial | GS-only, support SCC chip and "print to file" |
-| Modem / serial port | Partial | IIgs SCC8530 + Hayes modem; IIe Super Serial Card (`super_serial`) + same ModemDevice — see [SSC.md](SSC.md) |
+| Modem / serial port | Partial | IIgs SCC8530 + Hayes modem; IIe Super Serial Card (`super_serial`) + same ModemDevice — see [SSC.md](SSC.md). Host UART attach (#155) on macOS, Windows, and Linux (`device = "serial"`). |
 | ImageWriter printer emulation | Not started | |
 | Joystick / paddles | ✅ Complete | Mouse emulation of Joystick; Gamepads;  |
-| Sirius JoyPort (Atari) | ✅ | Implemented Single Joystick - enable mode with F6 |
+| Sirius JoyPort (Atari) | ✅ | Two Atari sticks via AN0 / Controller Select; enable mode with F6 |
 | Shift-key mod and Lowercase Character Generator | Not started | |
 
 ## Clocks
 
 | Type | Status | Notes |
 |------|--------|-------|
-| Thunderclock | Partial | Read of time implemented. Interrupts, writing clock - not implemented. Needs testing. |
+| Thunderclock | ✅ | uPD1990AC protocol, firmware ROM, ProDOS timestamps, TIME SET, IRQ / timer-pulse. |
 | Generic ProDOS-compatible Clock | Complete | Read-only. |
 | IIgs Realtime Clock | ✅ | syncs to host clock using local time zone |
 

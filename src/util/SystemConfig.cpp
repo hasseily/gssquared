@@ -166,6 +166,7 @@ std::optional<device_id> parse_card_type(const std::string& value, std::string& 
         {"uthernet2", DEVICE_ID_UTHERNET2},
         {"super_serial", DEVICE_ID_SUPER_SERIAL},
         {"appletini", DEVICE_ID_APPLETINI},
+        {"voc", DEVICE_ID_VOC},
     };
     const std::string canonical = canonical_card_name(value);
     const auto it = map.find(canonical);
@@ -316,8 +317,13 @@ bool validate_connections(PlatformId_t platform,
         seen.insert(key);
 
         const std::string device = to_lower(conn.device);
-        if (device != "none" && device != "file" && device != "echo" && device != "modem") {
+        if (device != "none" && device != "file" && device != "echo" &&
+            device != "modem" && device != "clipboard" && device != "serial") {
             error_out = "Unknown connection device: " + conn.device;
+            return false;
+        }
+        if (device == "serial" && conn.path.empty()) {
+            error_out = "[[connections]] serial device requires path";
             return false;
         }
         // path is optional for device=file (runtime may auto-generate capture names).
@@ -434,6 +440,7 @@ const char* card_type_name(device_id id) {
         case DEVICE_ID_UTHERNET2: return "uthernet2";
         case DEVICE_ID_SUPER_SERIAL: return "super_serial";
         case DEVICE_ID_APPLETINI: return "appletini";
+        case DEVICE_ID_VOC: return "voc";
         default: return "none";
     }
 }
@@ -457,6 +464,7 @@ static const char* card_display_name(device_id id) {
         case DEVICE_ID_UTHERNET2: return "Uthernet II";
         case DEVICE_ID_SUPER_SERIAL: return "Super Serial Card";
         case DEVICE_ID_APPLETINI: return "Appletini";
+        case DEVICE_ID_VOC: return "Video Overlay Card";
         default: return "None";
     }
 }
@@ -598,7 +606,8 @@ bool SystemConfig::save(const std::string& path, std::string& error_out) {
         out << "device = \"" << toml_escape(to_lower(conn.device)) << "\"\n";
         if (!conn.path.empty()) {
             std::string cpath = conn.path;
-            if (!base_dir.empty() && cpath.rfind(base_dir, 0) == 0) {
+            if (to_lower(conn.device) != "serial" && !base_dir.empty() &&
+                cpath.rfind(base_dir, 0) == 0) {
                 std::string rel = cpath.substr(base_dir.size());
                 while (!rel.empty() && (rel[0] == '/' || rel[0] == '\\')) {
                     rel.erase(rel.begin());
@@ -902,7 +911,12 @@ bool SystemConfig::load_gs2(const std::string& path, std::string& error_out) {
             }
 
             if (const auto path_node = (*conn_table)["path"]; path_node.is_string()) {
-                conn.path = resolve_path(base_dir, std::string(*path_node.value<std::string>()));
+                const std::string raw = std::string(*path_node.value<std::string>());
+                if (to_lower(conn.device) == "serial") {
+                    conn.path = raw;
+                } else {
+                    conn.path = resolve_path(base_dir, raw);
+                }
             }
             if (const auto url_node = (*conn_table)["remote_url"]; url_node.is_string()) {
                 conn.remote_url = std::string(*url_node.value<std::string>());

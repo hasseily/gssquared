@@ -1,5 +1,34 @@
 # Changelog
 
+## 2026-08-25
+
+Covers commits since the 2026-08-24 changelog entry through 2026-08-25, plus Host Serial (landed 08-24/08-25 but omitted from that entry) and two debugger/mouse fixes from 08-22 that were never listed.
+
+### Features
+
+- **Host Serial.** Serial ports (IIgs SCC, Super Serial) can attach a real host UART from the OSD or config editor: macOS `/dev/cu.*`, Windows `COMn`, Linux `/dev/ttyUSB*` / `ttyACM*` / `ttyAMA*` (Bluetooth/debug callouts skipped). The port list is rescanned while the picker is open. Guest baud/data/parity/stop settings pass through; unplugged dongles stay attached and retry. (`fb52cc7`, `e75e005`, `f6f9005`, `5b280b4`)
+
+### Bug Fixes
+
+- **IIgs mouse tracking (#170).** GS/OS tracking now reads the SHR Scan Control Byte through the linearized Mega II mapping, so a 640 desktop no longer tracks as 320. (`1f95ff7`, `bd182ac`)
+- **Debugger monitor pane (#169).** After a monitor command, the pane jumps to the newest output instead of staying scrolled to the top. (`d7173f7`)
+
+## 2026-08-24
+
+### Features
+
+- **CRT shader on Linux.** The CRT GPU shader is available on Linux (Vulkan / SPIR-V). The prebuilt `crt.frag.spv` is committed like the Windows DXIL blob; DXC is not required to build.
+
+## 2026-08-22
+
+Covers commits since the 2026-08-19 changelog entry through 2026-08-22.
+
+### Features
+
+- **Print to clipboard (#165).** Serial and parallel ports can attach a Clipboard device (OSD and config editor). Guest output is buffered (128KB), high-bit stripped, CR converted to LF, and copied to the host clipboard on idle-close (~10s) or Ctrl-Reset, with a toast for the byte count.
+- **IIgs paste / debug-protocol PASTE_TEXT (#167).** Paste now works on IIgs ADB (KeyGloo), matching the existing II/IIe path: Shift+Insert and Edit → Paste Text fill a buffer that is metered one character per frame. The debug protocol gained `PASTE_TEXT` (and Python `paste_text`) so agents can replace that buffer in one round-trip; the guest paces drain. (`bf8471d`)
+- **Debug Protocol on Windows (#168).** The debug protocol server now listens on Windows AF_UNIX sockets, so `--debug` works on Win10+. (`0df4821`)
+
 ## 2026-08-19
 
 Covers commits since the v0.10.0 release (2026-08-01) through 2026-08-19.
@@ -22,7 +51,7 @@ Covers commits since the v0.10.0 release (2026-08-01) through 2026-08-19.
 
 ### Bug Fixes
 
-- **IIgs FPI / cycle timing (#150, #101).** FPI registers (`$C035`–`$C037`, `$C02D`, `$C068`, `$C071`–`$C07F`) are billed as fast cycles instead of 1 MHz Mega II accesses — fixes textfunk border timing. (`7333660`)
+- **IIgs FPI / cycle timing (#150, #101).** FPI registers (`$C035`–`$C037`, `$C02D`, `$C068`, `$C071`–`$C07F`) are billed as fast cycles instead of 1 MHz Mega II accesses — fixes textfunk display timing. (`7333660`)
 - **Ludicrous speed.** Reworked as fixed multiples of the 14 MHz clock so the video scanner still runs; speaker, Ensoniq, and related devices no longer break under LS. (`e169b2b`)
 - **Second Sight VBL (#159).** Temporary fix so VBL is generated in Second Sight text mode under ludicrous speed (GNO/ME no longer freezes). (`03c52c8`)
 - **65816 / 6502.** WAI implementation; `PLB` is 4 cycles (was 2); `XCE` is 2 cycles (was 1); native-mode relative branches no longer take a page-cross penalty (#157, ROM 03 beep pitch). (`8fbca78`, `d981a26`, `34022cf`)
