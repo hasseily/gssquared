@@ -117,7 +117,8 @@ static void appletini_generate_legacy_fields(display_state_t *ds,
                                               const uint8_t *main_a,
                                               const uint8_t *aux_a,
                                               const uint8_t *main_b,
-                                              const uint8_t *aux_b) {
+                                              const uint8_t *aux_b,
+                                              uint16_t first_row = 0) {
     ds->appletini_page_renderer->set_normal_alt(ds->f_altcharset);
     ds->appletini_page_renderer->set_flash_state(ds->flash_state);
     ds->appletini_page_renderer->set_text_fg(ds->text_color >> 4);
@@ -128,25 +129,18 @@ static void appletini_generate_legacy_fields(display_state_t *ds,
     ds->appletini_field_a->open();
     ds->appletini_page_renderer->generate(
         mode, render, main_a, aux_a, ds->appletini_field_a, nullptr);
+    std::copy(ds->appletini_field_a->data() + first_row * 567,
+        ds->appletini_field_a->data() + 192 * 567,
+        ds->appletini_legacy_page_a.begin() + first_row * 567);
     ds->appletini_field_a->close();
 
     ds->appletini_field_b->open();
     ds->appletini_page_renderer->generate(
         mode, render, main_b, aux_b, ds->appletini_field_b, nullptr);
+    std::copy(ds->appletini_field_b->data() + first_row * 567,
+        ds->appletini_field_b->data() + 192 * 567,
+        ds->appletini_legacy_page_b.begin() + first_row * 567);
     ds->appletini_field_b->close();
-}
-
-static void appletini_weave_legacy_rows(display_state_t *ds,
-                                        uint16_t first, uint16_t last) {
-    SDL_Texture *a = ds->appletini_field_a->get_texture();
-    SDL_Texture *b = ds->appletini_field_b->get_texture();
-    for (uint16_t y = first; y < last; ++y) {
-        SDL_FRect source = {0.0f, static_cast<float>(y), 567.0f, 1.0f};
-        SDL_FRect dest_a = {0.0f, static_cast<float>(y * 2), 567.0f, 1.0f};
-        SDL_FRect dest_b = {0.0f, static_cast<float>(y * 2 + 1), 567.0f, 1.0f};
-        SDL_RenderTexture(ds->video_system->renderer, a, &source, &dest_a);
-        SDL_RenderTexture(ds->video_system->renderer, b, &source, &dest_b);
-    }
 }
 
 static bool update_display_appletini_legacy(display_state_t *ds,
@@ -163,61 +157,55 @@ static bool update_display_appletini_legacy(display_state_t *ds,
            falling through would alternate 384- and 192-row geometry. */
         scanbuf->clear();
         if (ds->video_system->last_texture != nullptr) {
-            const SDL_FRect source = ds->video_system->last_srcrect;
-            SDL_RenderTexture(ds->video_system->renderer,
-                              ds->video_system->last_texture,
-                              &source, &ds->video_system->target);
+            SDL_FRect source = ds->video_system->last_srcrect;
+            if (ds->video_system->last_texture == ds->appletini_legacy_texture) {
+                ds->video_system->set_logical_scanlines(192);
+                ds->video_system->set_fields_already_composed(true);
+            } else if (ds->video_system->last_texture == ds->appletini_shr_texture) {
+                ds->video_system->set_logical_scanlines(200);
+                ds->video_system->set_fields_already_composed(ds->appletini_shr_info.page_mode != 0);
+            }
+            ds->video_system->render_frame(ds->video_system->last_texture,
+                                           &source, nullptr, true, nullptr);
         }
         return true;
     }
 
-    if (ds->display_mode != GRAPHICS_MODE ||
-        ds->display_graphics_mode != HIRES_MODE) {
-        return false;
-    }
+    if (ds->display_mode != GRAPHICS_MODE) return false;
+    const bool hires = ds->display_graphics_mode == HIRES_MODE;
+    const uint8_t page_mode = appletini_legacy_paged_mode(ram, true, hires);
+    if (!page_mode) return false;
 
-    if (appletini_legacy_paged_mode(ram, true, true) != 1) return false;
-
-    const bool dhgr = !ds->f_double_graphics && ds->f_80col;
-    const video_decode_mode_t mode = dhgr ? video_decode_mode_t::DHGR
-                                          : video_decode_mode_t::HIRES;
-    const video_render_mode_t render = appletini_legacy_render_mode(ds, dhgr);
+    const bool doubled = !ds->f_double_graphics && ds->f_80col;
+    const video_decode_mode_t mode = hires
+        ? (doubled ? video_decode_mode_t::DHGR : video_decode_mode_t::HIRES)
+        : (doubled ? video_decode_mode_t::LORES80 : video_decode_mode_t::LORES40);
+    const video_render_mode_t render = appletini_legacy_render_mode(ds, hires && doubled);
     const uint8_t *aux = ram + 0x10000;
-
-    appletini_generate_legacy_fields(
-        ds, mode, render, ram + 0x2000, dhgr ? aux + 0x2000 : nullptr,
-        ram + 0x4000, dhgr ? aux + 0x4000 : nullptr);
-
-    SDL_Renderer *renderer = ds->video_system->renderer;
-    SDL_Texture *previous_target = SDL_GetRenderTarget(renderer);
-    if (!SDL_SetRenderTarget(renderer, ds->appletini_legacy_texture)) return false;
-
-    Uint8 old_r;
-    Uint8 old_g;
-    Uint8 old_b;
-    Uint8 old_a;
-    SDL_GetRenderDrawColor(renderer, &old_r, &old_g, &old_b, &old_a);
-    SDL_SetRenderDrawColor(renderer, 0, 0, 0, 255);
-    SDL_RenderClear(renderer);
-    appletini_weave_legacy_rows(ds, 0, ds->display_split_mode == SPLIT_SCREEN ? 160 : 192);
+    const uint16_t page_a = hires ? 0x2000 : 0x0400;
+    const uint16_t page_b = hires ? 0x4000 : 0x0800;
+    appletini_generate_legacy_fields(ds, mode, render,
+        ram + page_a, doubled ? aux + page_a : nullptr,
+        ram + page_b, doubled ? aux + page_b : nullptr);
 
     if (ds->display_split_mode == SPLIT_SCREEN) {
         const video_decode_mode_t text_mode = ds->f_80col
             ? video_decode_mode_t::TEXT80 : video_decode_mode_t::TEXT40;
-        appletini_generate_legacy_fields(
-            ds, text_mode, render, ram + 0x0400,
-            ds->f_80col ? aux + 0x0400 : nullptr,
-            ram + 0x0800, ds->f_80col ? aux + 0x0800 : nullptr);
-        appletini_weave_legacy_rows(ds, 160, 192);
+        appletini_generate_legacy_fields(ds, text_mode, render,
+            ram + 0x0400, ds->f_80col ? aux + 0x0400 : nullptr,
+            ram + 0x0800, ds->f_80col ? aux + 0x0800 : nullptr, 160);
     }
 
-    SDL_SetRenderTarget(renderer, previous_target);
-    SDL_SetRenderDrawColor(renderer, old_r, old_g, old_b, old_a);
+    const size_t height = appletini_compose_legacy_fields(
+        ds->appletini_legacy_page_a.data(), ds->appletini_legacy_page_b.data(),
+        567, 567, ds->appletini_legacy_pixels.data(), 640, hires, page_mode);
+    if (!SDL_UpdateTexture(ds->appletini_legacy_texture, nullptr,
+            ds->appletini_legacy_pixels.data(), 640 * sizeof(RGBA_t))) return false;
     scanbuf->clear();
-
-    SDL_FRect source = {0.0f, 0.0f, 567.0f, 384.0f};
-    ds->video_system->render_frame(
-        ds->appletini_legacy_texture, &source, nullptr, true, nullptr);
+    SDL_FRect source = {0.0f, 0.0f, 567.0f, static_cast<float>(height)};
+    ds->video_system->set_logical_scanlines(192);
+    ds->video_system->set_fields_already_composed(true);
+    ds->video_system->render_frame(ds->appletini_legacy_texture, &source, nullptr, true, nullptr);
     return true;
 }
 
@@ -225,20 +213,17 @@ static bool update_display_appletini_shr(display_state_t *ds,
                                           ScanBuffer *scanbuf) {
     if (!appletini_shr_enabled(ds)) return false;
 
-    void *pixels = nullptr;
-    int pitch = 0;
-    if (!SDL_LockTexture(ds->appletini_shr_texture, nullptr, &pixels, &pitch)) {
-        return false;
-    }
     uint8_t *ram = ds->mmu->get_memory_base();
     ds->appletini_shr_info = appletini_render_shr(
-        ram, ram + 0x10000, static_cast<RGBA_t *>(pixels),
-        static_cast<size_t>(pitch) / sizeof(RGBA_t),
+        ram, ram + 0x10000, ds->appletini_shr_pixels.data(), 640,
         (ds->new_video & 0x20) != 0);
-    SDL_UnlockTexture(ds->appletini_shr_texture);
+    if (!SDL_UpdateTexture(ds->appletini_shr_texture, nullptr,
+            ds->appletini_shr_pixels.data(), 640 * sizeof(RGBA_t))) return false;
     scanbuf->clear();
 
     SDL_FRect source = {0.0f, 0.0f, 640.0f, 400.0f};
+    ds->video_system->set_logical_scanlines(200);
+    ds->video_system->set_fields_already_composed(ds->appletini_shr_info.page_mode != 0);
     ds->video_system->render_frame(
         ds->appletini_shr_texture, &source, nullptr, true, nullptr);
     return true;
@@ -246,6 +231,7 @@ static bool update_display_appletini_shr(display_state_t *ds,
 
 bool update_display_apple2_cycle(display_state_t *ds) {
     video_system_t *vs = ds->video_system;
+    vs->set_logical_scanlines(192);
 
     ScanBuffer *scanbuf = ds->video_scanner->get_frame_scan();
 
@@ -501,23 +487,49 @@ void display_enable_appletini_video(computer_t *computer) {
         567, 192, ds->video_system->renderer, PIXEL_FORMAT);
     ds->appletini_field_b = new Frame560RGBA(
         567, 192, ds->video_system->renderer, PIXEL_FORMAT);
-    ds->appletini_legacy_texture = SDL_CreateTexture(
-        ds->video_system->renderer, PIXEL_FORMAT, SDL_TEXTUREACCESS_TARGET, 640, 400);
-    ds->appletini_shr_texture = SDL_CreateTexture(
-        ds->video_system->renderer, PIXEL_FORMAT, SDL_TEXTUREACCESS_STREAMING, 640, 400);
-    if (ds->appletini_legacy_texture == nullptr || ds->appletini_shr_texture == nullptr) {
-        throw std::runtime_error("Failed to create Appletini video textures");
-    }
+    // Retain the last complete CPU pixels across renderer/context replacement,
+    // including an A2Li loader hold while guest RAM is partly updated.
+    ds->appletini_legacy_pixels.resize(640 * 400);
+    ds->appletini_shr_pixels.resize(640 * 400);
+    auto recreate_textures = [ds](SDL_Renderer* renderer) {
+        ds->appletini_legacy_texture = SDL_CreateTexture(
+            renderer, PIXEL_FORMAT, SDL_TEXTUREACCESS_STREAMING, 640, 400);
+        ds->appletini_shr_texture = SDL_CreateTexture(
+            renderer, PIXEL_FORMAT, SDL_TEXTUREACCESS_STREAMING, 640, 400);
+        if (!ds->appletini_legacy_texture || !ds->appletini_shr_texture)
+            throw std::runtime_error("Failed to create Appletini video textures");
+        for (auto* texture : {ds->appletini_legacy_texture, ds->appletini_shr_texture}) {
+            SDL_SetTextureBlendMode(texture, SDL_BLENDMODE_NONE);
+            SDL_SetTextureScaleMode(texture, SDL_SCALEMODE_NEAREST);
+        }
+        SDL_UpdateTexture(ds->appletini_legacy_texture, nullptr,
+            ds->appletini_legacy_pixels.data(), 640 * sizeof(RGBA_t));
+        SDL_UpdateTexture(ds->appletini_shr_texture, nullptr,
+            ds->appletini_shr_pixels.data(), 640 * sizeof(RGBA_t));
+        if (ds->appletini_last_texture_kind == 1)
+            ds->video_system->last_texture = ds->appletini_legacy_texture;
+        else if (ds->appletini_last_texture_kind == 2)
+            ds->video_system->last_texture = ds->appletini_shr_texture;
+    };
+    recreate_textures(ds->video_system->renderer);
+    ds->appletini_renderer_resource.register_owner(ds->video_system->renderer,
+        [ds]() {
+            ds->appletini_last_texture_kind =
+                ds->video_system->last_texture == ds->appletini_legacy_texture ? 1 :
+                ds->video_system->last_texture == ds->appletini_shr_texture ? 2 : 0;
+            if (ds->appletini_last_texture_kind) ds->video_system->last_texture = nullptr;
+            SDL_DestroyTexture(ds->appletini_legacy_texture);
+            SDL_DestroyTexture(ds->appletini_shr_texture);
+            ds->appletini_legacy_texture = ds->appletini_shr_texture = nullptr;
+        }, recreate_textures);
 
     SDL_SetTextureBlendMode(ds->appletini_field_a->get_texture(), SDL_BLENDMODE_NONE);
     SDL_SetTextureBlendMode(ds->appletini_field_b->get_texture(), SDL_BLENDMODE_NONE);
-    SDL_SetTextureBlendMode(ds->appletini_legacy_texture, SDL_BLENDMODE_NONE);
-    SDL_SetTextureBlendMode(ds->appletini_shr_texture, SDL_BLENDMODE_NONE);
     SDL_SetTextureScaleMode(ds->appletini_field_a->get_texture(), SDL_SCALEMODE_NEAREST);
     SDL_SetTextureScaleMode(ds->appletini_field_b->get_texture(), SDL_SCALEMODE_NEAREST);
-    SDL_SetTextureScaleMode(ds->appletini_legacy_texture, SDL_SCALEMODE_NEAREST);
-    SDL_SetTextureScaleMode(ds->appletini_shr_texture, SDL_SCALEMODE_NEAREST);
 
+    ds->appletini_legacy_page_a.resize(567 * 192);
+    ds->appletini_legacy_page_b.resize(567 * 192);
     ds->appletini_video_enabled = true;
     ds->appletini_video7.reset();
     set_new_video(ds, 0);

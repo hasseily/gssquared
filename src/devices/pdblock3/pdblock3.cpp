@@ -21,12 +21,14 @@
 #include <string>
 #include <unordered_map>
 #include <vector>
-#include <deque>
+#include <memory>
+#include "devices/pdblock3/AppletiniSmartPort.hpp"
 #include "gs2.hpp"
 #include "cpu.hpp"
 #include "mmus/mmu_ii.hpp"
 #include "debug.hpp"
 #include "display/display.hpp"
+#include "devices/displaypp/generate/AppletiniTextOverlay.hpp"
 #include "devices/iiememory/iiememory.hpp"
 #include "devices/pdblock3/AppletiniRamWorksConfig.hpp"
 #include "devices/pdblock3/AppletiniSpeedControl.hpp"
@@ -62,13 +64,10 @@ private:
     media_t drives[PDB3_MAX_UNITS];
     uint8_t _slot;
 
-    /* The Appletini SmartPort ROM talks to byte FIFOs at $CFF0-$CFF2.
-       DATA reads do not consume bytes; the ROM pops them with a write to
-       DPOP. The real card completes requests on the Zynq PS. GSSquared can
-       complete them at the CTRL write and expose the same READY contract. */
-    std::vector<uint8_t> appletini_command;
-    std::deque<uint8_t> appletini_response;
-    bool appletini_ready = false;
+    std::unique_ptr<AppletiniSmartPort> appletini;
+    uint8_t max_devices = PDB3_MAX_DEVICES;
+    uint8_t max_units = PDB3_MAX_UNITS;
+    bool configured_units[AppletiniSmartPort::max_units]{};
 
     std::unordered_map<storage_key_t, key_info_t> key_info;
 
@@ -107,14 +106,15 @@ private:
     }
 
 public:
-    PDBlock3(uint8_t slot, MMU *mmu) : _slot(slot), mmu(mmu) {
+    PDBlock3(uint8_t slot, MMU *mmu, bool is_appletini = false) : _slot(slot), mmu(mmu) {
+        if (is_appletini) max_devices = max_units = AppletiniSmartPort::max_units;
         for (int j = 0; j < PDB3_MAX_UNITS; j++) {
             drives[j].file = nullptr;
             drives[j].media = nullptr;
             disk_switched[j] = false;
         }
-        // initialize key_info for all 6 devices
-        for (int j = 0; j < 6; j++) {
+        // Initialize every registered host drive.
+        for (int j = 0; j < max_devices; j++) {
             storage_key_t key;
             key.drive = j;
             key.slot = _slot;
@@ -127,252 +127,54 @@ public:
         cmd_buffer.status2 = 0x00;
     }
 
-    void appletini_data_write(uint8_t data) {
-        appletini_command.push_back(data);
+    void configure_appletini(bool ram32) {
+        appletini = std::make_unique<AppletiniSmartPort>(_slot,
+            [this](uint8_t unit) {
+                const media_t& drive = drives[unit];
+                const bool present = drive.file && drive.media;
+                return AppletiniSmartPort::Unit{present,
+                    present ? drive.media->block_count : 0,
+                    present && drive.media->write_protected, configured_units[unit]};
+            },
+            [this](uint8_t unit, uint32_t block, uint8_t* data) {
+                return appletini_transfer(unit, block, data, false);
+            },
+            [this](uint8_t unit, uint32_t block, const uint8_t* data) {
+                return appletini_transfer(unit, block, const_cast<uint8_t*>(data), true);
+            });
+        appletini->enable_ramdisk(ram32);
     }
-
-    uint8_t appletini_data_read() const {
-        return appletini_response.empty() ? 0x00 : appletini_response.front();
-    }
-
-    void appletini_data_pop() {
-        if (!appletini_response.empty()) appletini_response.pop_front();
-    }
-
-    uint8_t appletini_ctrl_read() const {
-        return appletini_ready ? 0x80 : 0x00;
-    }
+    void appletini_data_write(uint8_t data) { appletini->data_write(data); }
+    uint8_t appletini_data_read() const { return appletini->data_read(); }
+    void appletini_data_pop() { appletini->pop(); }
+    uint8_t appletini_ctrl_read() const { return appletini->control_read(); }
+    void appletini_ctrl_write(uint8_t family) { appletini->execute(family); }
 
 private:
-    static constexpr uint8_t APPLETINI_MAX_UNITS = 8;
-    static constexpr uint8_t APPLETINI_OK = 0x00;
-    static constexpr uint8_t APPLETINI_BADCTL = 0x21;
-    static constexpr uint8_t APPLETINI_IO_ERROR = 0x27;
-    static constexpr uint8_t APPLETINI_NO_DEVICE = 0x28;
-    static constexpr uint8_t APPLETINI_NOWRITE = 0x2B;
-
-    void appletini_response_push(uint8_t value) {
-        appletini_response.push_back(value);
-    }
-
-    void appletini_response_push(const uint8_t *data, size_t size) {
-        for (size_t i = 0; i < size; i++) appletini_response.push_back(data[i]);
-    }
-
-    uint8_t appletini_present_count() const {
-        uint8_t count = 0;
-        for (uint8_t unit = 0; unit < APPLETINI_MAX_UNITS; unit++) {
-            if (drives[unit].file != nullptr && drives[unit].media != nullptr) count++;
-        }
-        return count;
-    }
-
-    uint8_t appletini_read_block(uint8_t unit, uint32_t block) {
-        if (unit >= APPLETINI_MAX_UNITS || drives[unit].file == nullptr ||
-            drives[unit].media == nullptr) {
-            return APPLETINI_NO_DEVICE;
-        }
-
-        media_t &drive = drives[unit];
-        if (drive.media->block_size != 512 || block >= drive.media->block_count) {
-            return APPLETINI_IO_ERROR;
-        }
-        if (fseek(drive.file, drive.media->data_offset + (block * 512), SEEK_SET) != 0) {
-            return APPLETINI_IO_ERROR;
-        }
-
-        uint8_t block_data[512];
-        if (fread(block_data, 1, sizeof(block_data), drive.file) != sizeof(block_data)) {
-            return APPLETINI_IO_ERROR;
-        }
-        appletini_response_push(block_data, sizeof(block_data));
+    uint8_t appletini_transfer(uint8_t unit, uint32_t block, uint8_t* data, bool write) {
+        media_t& drive = drives[unit];
+        if (!drive.file || !drive.media) return AppletiniSmartPort::no_device;
+        if (drive.media->block_size != 512 || block >= drive.media->block_count)
+            return AppletiniSmartPort::io_error;
+        if (write && drive.media->write_protected) return AppletiniSmartPort::no_write;
+        const uint64_t offset = drive.media->data_offset + uint64_t{block} * 512;
+#ifdef _WIN32
+        const int seek_result = _fseeki64(drive.file, static_cast<int64_t>(offset), SEEK_SET);
+#else
+        const int seek_result = fseeko(drive.file, static_cast<off_t>(offset), SEEK_SET);
+#endif
+        if (seek_result != 0)
+            return AppletiniSmartPort::io_error;
+        const size_t bytes = write ? fwrite(data, 1, 512, drive.file)
+                                   : fread(data, 1, 512, drive.file);
+        if (bytes != 512 || (write && fflush(drive.file) != 0)) return AppletiniSmartPort::io_error;
         drive.last_block_accessed = block;
         drive.last_block_access_time = SDL_GetTicksNS();
         key_info[drive.key].last_active_unit = unit;
-        return APPLETINI_OK;
-    }
-
-    uint8_t appletini_write_block(uint8_t unit, uint32_t block,
-                                  const uint8_t *data, size_t size) {
-        if (unit >= APPLETINI_MAX_UNITS || drives[unit].file == nullptr ||
-            drives[unit].media == nullptr) {
-            return APPLETINI_NO_DEVICE;
-        }
-
-        media_t &drive = drives[unit];
-        if (drive.media->write_protected) return APPLETINI_NOWRITE;
-        if (drive.media->block_size != 512 || block >= drive.media->block_count ||
-            data == nullptr || size < 512) {
-            return APPLETINI_IO_ERROR;
-        }
-        if (fseek(drive.file, drive.media->data_offset + (block * 512), SEEK_SET) != 0 ||
-            fwrite(data, 1, 512, drive.file) != 512 || fflush(drive.file) != 0) {
-            return APPLETINI_IO_ERROR;
-        }
-        drive.last_block_accessed = block;
-        drive.last_block_access_time = SDL_GetTicksNS();
-        key_info[drive.key].last_active_unit = unit;
-        return APPLETINI_OK;
-    }
-
-    void appletini_push_smartport_status(uint8_t unit, uint8_t status_code) {
-        uint8_t payload[29] = {};
-        size_t payload_size = 0;
-
-        if (unit == 0) {
-            if (status_code == 0x00) {
-                payload[0] = appletini_present_count();
-                payload_size = 8;
-            } else if (status_code == 0x03) {
-                static constexpr uint8_t controller_id[] = {
-                    12, 'A', 'p', 'p', 'l', 'e', 't', 'i', 'n', 'i', ' ', 'S', 'P'
-                };
-                payload[0] = appletini_present_count();
-                memcpy(payload + 8, controller_id, sizeof(controller_id));
-                memset(payload + 21, ' ', 4);
-                payload[27] = 1;
-                payload[28] = 0;
-                payload_size = 29;
-            } else {
-                appletini_response_push(APPLETINI_BADCTL);
-                return;
-            }
-        } else {
-            const uint8_t drive_index = unit - 1;
-            if (drive_index >= APPLETINI_MAX_UNITS || drives[drive_index].file == nullptr ||
-                drives[drive_index].media == nullptr) {
-                appletini_response_push(APPLETINI_NO_DEVICE);
-                return;
-            }
-
-            const media_descriptor *media = drives[drive_index].media;
-            const uint32_t blocks = media->block_count;
-            const uint8_t general = media->write_protected ? 0xFC : 0xF8;
-            payload[0] = general;
-            payload[1] = blocks & 0xFF;
-            payload[2] = (blocks >> 8) & 0xFF;
-            payload[3] = (blocks >> 16) & 0xFF;
-            if (status_code == 0x00) {
-                payload_size = 4;
-            } else if (status_code == 0x03) {
-                static constexpr uint8_t device_id[] = {
-                    12, 'A', 'p', 'p', 'l', 'e', 't', 'i', 'n', 'i', ' ', 'H', 'D'
-                };
-                memcpy(payload + 4, device_id, sizeof(device_id));
-                memset(payload + 17, ' ', 4);
-                payload[21] = 0x02;
-                payload[22] = 0x20;
-                payload[23] = 1;
-                payload[24] = 0;
-                payload_size = 25;
-            } else {
-                appletini_response_push(APPLETINI_BADCTL);
-                return;
-            }
-        }
-
-        appletini_response_push(APPLETINI_OK);
-        appletini_response_push(payload_size & 0xFF);
-        appletini_response_push((payload_size >> 8) & 0xFF);
-        appletini_response_push(payload, payload_size);
-    }
-
-    void appletini_execute_prodos() {
-        if (appletini_command.size() < 6) {
-            appletini_response_push(APPLETINI_BADCTL);
-            return;
-        }
-
-        const uint8_t command = appletini_command[0];
-        const uint8_t unit_byte = appletini_command[1];
-        const uint8_t slot = (unit_byte >> 4) & 0x07;
-        const uint8_t drive = unit_byte >> 7;
-        const uint32_t block = appletini_command[4] |
-                               (static_cast<uint32_t>(appletini_command[5]) << 8);
-
-        if (slot != static_cast<uint8_t>(_slot)) {
-            appletini_response_push(APPLETINI_IO_ERROR);
-            return;
-        }
-
-        if (command == 0x00) {
-            uint8_t result = APPLETINI_OK;
-            uint32_t blocks = 0;
-            if (drives[drive].file == nullptr || drives[drive].media == nullptr) {
-                result = APPLETINI_NO_DEVICE;
-            } else {
-                blocks = drives[drive].media->block_count;
-                if (blocks > 0xFFFF) blocks = 0xFFFF;
-            }
-            appletini_response_push(result);
-            appletini_response_push(blocks & 0xFF);
-            appletini_response_push((blocks >> 8) & 0xFF);
-        } else if (command == 0x01) {
-            const size_t result_index = appletini_response.size();
-            appletini_response_push(APPLETINI_OK);
-            appletini_response[result_index] = appletini_read_block(drive, block);
-        } else if (command == 0x02) {
-            appletini_response_push(appletini_write_block(
-                drive, block,
-                appletini_command.size() >= 518 ? appletini_command.data() + 6 : nullptr,
-                appletini_command.size() >= 6 ? appletini_command.size() - 6 : 0));
-        } else {
-            appletini_response_push(APPLETINI_BADCTL);
-        }
-    }
-
-    void appletini_execute_smartport() {
-        if (appletini_command.size() < 10) {
-            appletini_response_push(APPLETINI_BADCTL);
-            return;
-        }
-
-        const uint8_t command = appletini_command[0];
-        const uint8_t unit = appletini_command[2];
-        const uint32_t block = appletini_command[5] |
-                               (static_cast<uint32_t>(appletini_command[6]) << 8) |
-                               (static_cast<uint32_t>(appletini_command[7]) << 16);
-
-        if (command == 0x00) {
-            appletini_push_smartport_status(unit, appletini_command[5]);
-        } else if (command == 0x01) {
-            const size_t result_index = appletini_response.size();
-            appletini_response_push(APPLETINI_OK);
-            appletini_response[result_index] =
-                unit == 0 ? APPLETINI_NO_DEVICE : appletini_read_block(unit - 1, block);
-        } else if (command == 0x02) {
-            appletini_response_push(unit == 0 ? APPLETINI_NO_DEVICE :
-                appletini_write_block(
-                    unit - 1, block,
-                    appletini_command.size() >= 522 ? appletini_command.data() + 10 : nullptr,
-                    appletini_command.size() >= 10 ? appletini_command.size() - 10 : 0));
-        } else if (command == 0x03) {
-            appletini_response_push(APPLETINI_NOWRITE);
-        } else {
-            appletini_response_push(APPLETINI_BADCTL);
-        }
+        return AppletiniSmartPort::ok;
     }
 
 public:
-    void appletini_ctrl_write(uint8_t family) {
-        appletini_ready = false;
-        appletini_response.clear();
-
-        if (family == 0x01) {
-            appletini_execute_prodos();
-        } else if (family == 0x02) {
-            appletini_execute_smartport();
-        } else {
-            /* The reference ROM uses family $40 for an optional config UI.
-               Appletini has no such service, so a normal boot falls through
-               to its first ProDOS block read. */
-            appletini_response_push(APPLETINI_BADCTL);
-        }
-
-        appletini_command.clear();
-        appletini_ready = true;
-    }
-
     ~PDBlock3() {
         for (int j = 0; j < PDB3_MAX_UNITS; j++) {
             if (drives[j].file) {
@@ -752,9 +554,15 @@ public:
         return false;
     }
 
-    bool mount(storage_key_t key, std::vector<media_descriptor *> media_list) {
+    void prepare_mount(storage_key_t key) override {
+        if (appletini && key.drive < max_devices) configured_units[key.drive] = true;
+    }
+
+    bool mount(storage_key_t key, std::vector<media_descriptor *> media_list) override {
         if (media_list.empty()) return false;
-        if (key.drive >= PDB3_MAX_DEVICES) return false;
+        if (key.drive >= max_devices) return false;
+
+        prepare_mount(key);
 
         // Vet every volume before opening any of them, so a bad entry in a
         // .pmap can't leave us with a half-populated set of units.
@@ -781,17 +589,17 @@ public:
             }
         }
 
-        int unused_unit = 0;
+        int unused_unit = appletini ? key.drive : 0;
         int first_mounted_unit = -1;
         std::vector<int> assigned;
         const size_t tooltip_before = key_info[key].tooltip.size();
         for (media_descriptor *media : media_list) {
             // find unused unit
-            while (unused_unit < PDB3_MAX_UNITS) {
+            while (unused_unit < max_units) {
                 if (drives[unused_unit].file == nullptr) break;
                 unused_unit++;
             }
-            if (unused_unit == PDB3_MAX_UNITS) {
+            if (unused_unit == max_units) {
                 for (int u : assigned) {
                     release_file(drives[u].file);
                     drives[u].file = nullptr;
@@ -846,8 +654,9 @@ public:
 
     // unmount all units that have a matching key
     // clear the tooltip vector for this key
-    bool unmount(storage_key_t key) {
-        if (key.drive >= PDB3_MAX_DEVICES) return true;
+    bool unmount(storage_key_t key) override {
+        if (key.drive >= max_devices) return true;
+        if (appletini) configured_units[key.drive] = false;
 
         for (int i = 0; i < PDB3_MAX_UNITS; i++) {
             if (drives[i].key == key) {
@@ -872,7 +681,7 @@ public:
         return true;
     }
 
-    bool writeback(storage_key_t key) {
+    bool writeback(storage_key_t key) override {
         return true;
     }
 
@@ -899,7 +708,9 @@ public:
                 seldrive.media->write_protected};
     }
 
-    drive_status_t status(storage_key_t key) {
+    drive_status_t status(storage_key_t key) override {
+        if (appletini && appletini->ramdisk_unit() == key.drive)
+            return {true, "RAM32 (volatile)", false, 0, false, false};
         if (key.drive >= PDB3_MAX_UNITS) {  
             return {false, "", false, 0, false, false};
         }
@@ -942,6 +753,7 @@ public:
     
     void reset() {
         cmd_buffer.index = 0;
+        if (appletini) appletini->reset();
     }
     void put(uint8_t data) {
         if (cmd_buffer.index < MAX_PD_BUFFER_SIZE) {
@@ -1096,7 +908,8 @@ void map_rom_appletini(void *context, SlotType_t slot) {
 
 static void register_smartport_drives(computer_t *computer, SlotType_t slot,
                                       pdblock3_data *pdblock_d) {
-    PDBlock3 *pd3 = new PDBlock3(slot, pdblock_d->mmu);
+    const bool is_appletini = pdblock_d->id == DEVICE_ID_APPLETINI;
+    PDBlock3 *pd3 = new PDBlock3(slot, pdblock_d->mmu, is_appletini);
     pdblock_d->pdb = pd3;
 
     storage_key_t key;
@@ -1104,7 +917,7 @@ static void register_smartport_drives(computer_t *computer, SlotType_t slot,
     key.drive = 0;
     key.partition = 0;
     key.subunit = 0;
-    for (key.drive = 0; key.drive < 6; key.drive++) {
+    for (key.drive = 0; key.drive < (is_appletini ? 8 : PDB3_MAX_DEVICES); key.drive++) {
         computer->mounts->register_storage_device(key, pd3, DRIVE_TYPE_PRODOS_BLOCK);
     }
 }
@@ -1188,10 +1001,31 @@ void init_appletini(computer_t *computer, SlotType_t slot)
         0xC074, { appletini_write_C074, pdblock_d });
     computer->mmu->set_C8xx_handler(slot, map_rom_appletini, pdblock_d);
 
-    // An enabled Appletini boots with its TransWarp-compatible accelerator at
-    // the hardware's full-rate preset.  $C074 can still lock execution to
-    // 1 MHz and release back to this fixed rate.
-    computer->clock->set_clock_mode(CLOCK_33_3MHZ);
+    const AppletiniConfig settings = config ? config->appletini : AppletiniConfig{};
+    pdblock_d->pdb->configure_appletini(settings.ram32);
+    pdblock_d->appletini_speed.configure(settings.accelerator, settings.ignore_c074);
+    if (settings.accelerator) computer->clock->set_clock_mode(settings.speed);
+    computer->register_reset_handler([pdblock_d](bool) {
+        pdblock_d->pdb->reset();
+        const auto transition = pdblock_d->appletini_speed.reset();
+        if (transition.apply) {
+            auto* clock = pdblock_d->computer->clock;
+            clock->set_clock_mode(transition.mode);
+            if (transition.restore_cpu_per_14m) clock->set_cpu_per_14m(transition.cpu_per_14m);
+            auto* display = static_cast<display_state_t*>(
+                pdblock_d->computer->get_module_state(MODULE_DISPLAY));
+            if (display) display_update_video_scanner(display);
+        }
+        return true;
+    });
+    computer->register_shutdown_handler([pdblock_d]() {
+        delete pdblock_d->pdb;
+        delete pdblock_d->slot_rom;
+        delete pdblock_d->c8_rom;
+        delete pdblock_d;
+        return true;
+    });
+    init_appletini_text_overlay(computer);
     display_enable_appletini_video(computer);
     auto *display = static_cast<display_state_t *>(
         computer->get_module_state(MODULE_DISPLAY));

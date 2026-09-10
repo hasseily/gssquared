@@ -3,6 +3,7 @@
 #include <SDL3/SDL.h>
 #include <SDL3_ttf/SDL_ttf.h>
 #include <string>
+#include "display/RendererResource.hpp"
 
 enum TextAlignment {
     TEXT_ALIGN_LEFT,
@@ -14,6 +15,7 @@ struct TextRenderer {
     /* Display Info */
     SDL_Window *window;
     SDL_Renderer *renderer;
+    RendererResource renderer_resource;
 
     uint8_t color_r, color_g, color_b, color_a;
 

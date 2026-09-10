@@ -234,6 +234,44 @@ static bool test_appletini_ramworks_policy() {
     return true;
 }
 
+static bool test_appletini_108_config() {
+    std::string error;
+    SystemConfig base;
+    CHECK(base.load((fixture_dir() / "Appletini.gs2").string(), error), error);
+    CHECK(!base.config().appletini.accelerator && !base.config().appletini.ram32 &&
+        base.config().appletini.ramworks && !base.config().appletini.ignore_c074,
+        "fresh defaults match firmware 1.0.8");
+    SystemConfig config;
+    CHECK(config.load((fixture_dir() / "Appletini108.gs2").string(), error), error);
+    CHECK(config.config().appletini.accelerator && config.config().appletini.ram32 &&
+        config.config().appletini.ignore_c074 && !config.config().appletini.ramworks,
+        "Appletini feature settings parsed");
+    CHECK(config.config().appletini.speed == CLOCK_14_3MHZ, "explicit speed preserved");
+    CHECK(!should_enable_appletini_ramworks(config.config()), "explicit RamWorks disable honored");
+    CHECK(config.mounts().size() == 1 && config.mounts()[0].drive == 7,
+        "eighth Appletini drive permitted");
+    const auto temp = std::filesystem::temp_directory_path() / "gs2_appletini108_roundtrip.gs2";
+    CHECK(config.save(temp.string(), error), error);
+    SystemConfig restored;
+    CHECK(restored.load(temp.string(), error), error);
+    std::filesystem::remove(temp);
+    const auto& a = restored.config().appletini;
+    CHECK(a.accelerator && a.ram32 && a.ignore_c074 && !a.ramworks && a.speed == CLOCK_14_3MHZ,
+        "all Appletini settings survive save and reload");
+    CHECK(restored.config().slot_devices[4] == DEVICE_ID_MOCKINGBOARD &&
+        restored.config().slot_devices[7] == DEVICE_ID_APPLETINI &&
+        restored.config().slot_devices[5] == DEVICE_ID_NONE &&
+        restored.config().slot_devices[6] == DEVICE_ID_NONE,
+        "Appletini neither replaces nor adds other slot devices");
+    CHECK(restored.mounts()[0].drive == 7, "eighth drive survives save and reload");
+    SystemConfig legacy;
+    CHECK(legacy.load((fixture_dir() / "Appletini Settings.txt").string(), error), error);
+    CHECK(legacy.config().appletini.accelerator && legacy.config().appletini.ram32 &&
+        legacy.config().appletini.ignore_c074 && legacy.config().appletini.speed == CLOCK_2_8MHZ,
+        "legacy settings retain explicit machine speed and Appletini options");
+    return true;
+}
+
 static bool test_dual_mockingboard() {
     const auto path = fixture_dir() / "DualMock.gs2";
     SystemConfig config;
@@ -498,6 +536,7 @@ static bool run_self_tests() {
         {"aliases", test_aliases},
         {"appletini_availability", test_appletini_availability},
         {"appletini_ramworks_policy", test_appletini_ramworks_policy},
+        {"appletini_108_config", test_appletini_108_config},
         {"dual_mockingboard", test_dual_mockingboard},
         {"storage_multivolume", test_storage_multivolume},
         {"parallel_output", test_parallel_output},

@@ -216,6 +216,16 @@ void init_slot_videx(computer_t *computer, SlotType_t slot) {
         return;
     }
     SDL_SetTextureScaleMode(videx_d->videx_texture, SDL_SCALEMODE_LINEAR);
+    videx_d->renderer_resource.register_owner(vs->renderer, [videx_d]() {
+        SDL_DestroyTexture(videx_d->videx_texture);
+        videx_d->videx_texture = nullptr;
+    }, [videx_d](SDL_Renderer* renderer) {
+        videx_d->videx_texture = SDL_CreateTexture(renderer, PIXEL_FORMAT,
+            SDL_TEXTUREACCESS_STREAMING, VIDEX_SCREEN_WIDTH, VIDEX_SCREEN_HEIGHT);
+        SDL_SetTextureScaleMode(videx_d->videx_texture, SDL_SCALEMODE_LINEAR);
+        SDL_UpdateTexture(videx_d->videx_texture, nullptr, videx_d->buffer, VIDEX_SCREEN_WIDTH * sizeof(RGBA_t));
+        for (auto& dirty : videx_d->line_dirty) dirty = true;
+    });
 
     ResourceFile *rom = new ResourceFile("roms/cards/videx/videx-2.4.rom", READ_ONLY);
     if (rom == nullptr) {

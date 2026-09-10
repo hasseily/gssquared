@@ -4,6 +4,7 @@
 #include <vector>
 #include <SDL3/SDL.h>
 #include "videosystem.hpp"
+#include "display/RendererResource.hpp"
 #include "devices/displaypp/RGBA.hpp"
 
 /** Guest texture format bytes (SecondSight_GPU.md §5). */
@@ -72,9 +73,12 @@ private:
         uint8_t format = 0;
         uint8_t flags = 0;
         uint32_t bytes = 0;
+        std::vector<uint8_t> rgba;
     };
 
     video_system_t *vs = nullptr;
+    RendererResource renderer_resource;
+    std::vector<uint8_t> display_pixels[2];
     SDL_Texture *display[2] = {nullptr, nullptr};
     int front = 0;
     int back = 1;

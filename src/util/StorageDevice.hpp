@@ -35,6 +35,9 @@ class StorageDevice {
     public:
         virtual ~StorageDevice() = default;
         
+        // A configured path owns its unit even when media identification fails.
+        // Ordinary devices need no reservation; Appletini uses it for RAM32.
+        virtual void prepare_mount(storage_key_t) {}
         virtual bool mount(storage_key_t key, std::vector<media_descriptor *> media_list) = 0;
         virtual bool unmount(storage_key_t key) = 0;
         virtual bool writeback(storage_key_t key) = 0;

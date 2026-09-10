@@ -96,10 +96,14 @@
     var Module = {
       canvas: (function () {
         var canvas = document.getElementById('canvas');
-        // Reload the page if WebGL context is lost.
+        // Pause at the next frame boundary, then rebuild disposable graphics
+        // resources when the browser restores the context. Guest state stays live.
         canvas.addEventListener('webglcontextlost', function (e) {
-          alert('WebGL context lost. You will need to reload the page.');
           e.preventDefault();
+          if (Module.ccall) Module.ccall('gs2_webgl_context_lost', null, [], []);
+        }, false);
+        canvas.addEventListener('webglcontextrestored', function () {
+          if (Module.ccall) Module.ccall('gs2_webgl_context_restored', null, [], []);
         }, false);
         return canvas;
       })(),
@@ -112,6 +116,24 @@
       // (EEXIST on mkdir / ENOENT on rmdir become no-ops). Emscripten errno:
       // EEXIST = 20, ENOENT = 44.
       preRun: [function () {
+        // Restore effect presets before C++ reads current.json. Other emulator
+        // files remain in MEMFS; only this directory is persisted.
+        addRunDependency('gs2-postprocess-storage');
+        try {
+          FS.mkdirTree('/postprocess');
+          FS.mount(IDBFS, {}, '/postprocess');
+          FS.syncfs(true, function (error) {
+            Module.gs2PostprocessPersistent = !error;
+            Module.gs2PostprocessStorageError = error ?
+              'Browser storage unavailable; export presets to keep them.' : '';
+            removeRunDependency('gs2-postprocess-storage');
+          });
+        } catch (error) {
+          Module.gs2PostprocessPersistent = false;
+          Module.gs2PostprocessStorageError =
+            'Browser storage unavailable; export presets to keep them.';
+          removeRunDependency('gs2-postprocess-storage');
+        }
         var origMkdir = FS.mkdir.bind(FS);
         FS.mkdir = function (path, mode) {
           try { return origMkdir(path, mode); }

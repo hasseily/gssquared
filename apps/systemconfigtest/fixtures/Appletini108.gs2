@@ -1,0 +1,24 @@
+gs2_version = 1
+id = "4c921be7-3e4a-426f-bfe5-58b81d107d61"
+name = "Appletini firmware 1.0.8 settings"
+platform = "apple2e_enhanced"
+
+[appletini]
+accelerator = true
+speed = "14"
+ignore_c074 = true
+ramworks = false
+ram32 = true
+
+[[cards]]
+slot = 7
+card = "appletini"
+
+[[cards]]
+slot = 4
+card = "mockingboard"
+
+[[storage]]
+slot = 7
+drive = 8
+image = "eight.po"

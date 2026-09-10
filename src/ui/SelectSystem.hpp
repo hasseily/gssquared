@@ -1,6 +1,7 @@
 #pragma once
 
 #include <SDL3/SDL.h>
+#include "display/RendererResource.hpp"
 #include <memory>
 #include <string>
 #include <vector>
@@ -32,6 +33,7 @@ protected:
     int design_height = 928;
     AssetAtlas_t *aa;
     UIContext ui_ctx;
+    RendererResource renderer_resource_;
 
     /** Owned loaded configs for recent tiles (keeps SystemConfig_t string pointers valid). */
     std::vector<std::unique_ptr<SystemConfig>> recent_loaded_;

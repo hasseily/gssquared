@@ -347,6 +347,28 @@ void appletini_legacy_reset_load_hold(uint8_t *main_bank) {
     if (main_bank[0x407C] == A2LI_LOAD_HOLD) main_bank[0x407C] = 0;
 }
 
+size_t appletini_compose_legacy_fields(const RGBA_t* page1, const RGBA_t* page2,
+                                      size_t width, size_t input_stride,
+                                      RGBA_t* output, size_t output_stride,
+                                      bool hires, uint8_t page_mode) {
+    if (!page1 || !page2 || !output || !width || input_stride < width ||
+        output_stride < width || (page_mode != 1 && page_mode != 2)) return 0;
+    const size_t height = page_mode == 1 ? 384 : 192;
+    for (size_t y = 0; y < height; ++y) {
+        RGBA_t* row = output + y * output_stride;
+        if (page_mode == 2) {
+            for (size_t x = 0; x < width; ++x)
+                row[x] = average(page1[y * input_stride + x], page2[y * input_stride + x]);
+        } else {
+            const size_t source_y = hires ? y / 2 : ((y >> 3) << 2) | (y & 3);
+            const bool second = hires ? (y & 1) : ((y >> 2) & 1);
+            const RGBA_t* source = (second ? page2 : page1) + source_y * input_stride;
+            std::copy_n(source, width, row);
+        }
+    }
+    return height;
+}
+
 AppletiniSHRRenderInfo appletini_render_shr(const uint8_t *main_bank,
                                             const uint8_t *aux_bank,
                                             RGBA_t *output,

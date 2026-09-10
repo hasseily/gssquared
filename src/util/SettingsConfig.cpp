@@ -525,7 +525,40 @@ bool SystemConfig::load_settings(const std::string& path, std::string& error_out
         "profile.name", "machine", "gssquared.description", "gssquared.clock", "gssquared.scanner",
     };
 
+    bool migrated_appletini_speed = false;
+    if (config_data_.slot_devices[SLOT_7] == DEVICE_ID_APPLETINI) {
+        if (const auto it = entries.find("machine.speed"); it != entries.end()) {
+            if (const auto speed = appletini_parse_speed(to_lower(it->second))) {
+                config_data_.appletini.speed = *speed;
+                config_data_.appletini.accelerator = *speed != CLOCK_1_024MHZ;
+                migrated_appletini_speed = true;
+            }
+        }
+    }
+
     for (const auto& [key, value] : entries) {
+        if (key == "machine.speed" && migrated_appletini_speed) continue;
+        if (key.rfind("appletini.", 0) == 0) {
+            const auto name = key.substr(10);
+            if (name == "speed") {
+                const auto speed = appletini_parse_speed(to_lower(value));
+                if (!speed) { error_out = "Invalid Appletini speed"; return false; }
+                config_data_.appletini.speed = *speed;
+                continue;
+            }
+            bool* target = name == "accelerator" ? &config_data_.appletini.accelerator :
+                name == "ignorec074" ? &config_data_.appletini.ignore_c074 :
+                name == "ramworks" ? &config_data_.appletini.ramworks :
+                name == "ram32" ? &config_data_.appletini.ram32 : nullptr;
+            if (target) {
+                const auto v = to_lower(value);
+                if (v != "true" && v != "false" && v != "on" && v != "off" && v != "1" && v != "0") {
+                    error_out = "Invalid boolean Appletini setting: " + key; return false;
+                }
+                *target = v == "true" || v == "on" || v == "1";
+                continue;
+            }
+        }
         if (handled_keys.count(key)) {
             continue;
         }

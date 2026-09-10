@@ -126,6 +126,7 @@ I don't know what all these words mean exactly. But I confirmed it does seem to 
 - (void)monitorMonoWhite:(id)sender;
 - (void)displayFullScreen:(id)sender;
 - (void)toggleCrtShader:(id)sender;
+- (void)openEffectsSettings:(id)sender;
 - (void)toggleHudStats:(id)sender;
 - (void)toggleHudDrives:(id)sender;
 - (void)toggleSsTextMode:(id)sender;
@@ -253,6 +254,7 @@ I don't know what all these words mean exactly. But I confirmed it does seem to 
 - (void)monitorMonoWhite:(id)sender  { getMenuInterface()->setMonitor(MONITOR_MONO_WHITE); (void)sender; }
 - (void)displayFullScreen:(id)sender { getMenuInterface()->displayFullScreen(); (void)sender; }
 - (void)toggleCrtShader:(id)sender   { getMenuInterface()->toggleCrtShader(); (void)sender; }
+- (void)openEffectsSettings:(id)sender { getMenuInterface()->openEffectsSettings(); (void)sender; }
 - (void)toggleHudStats:(id)sender    { getMenuInterface()->toggleHudStats(); (void)sender; }
 - (void)toggleHudDrives:(id)sender   { getMenuInterface()->toggleHudDrives(); (void)sender; }
 - (void)toggleSsTextMode:(id)sender  { getMenuInterface()->toggleSsTextMode(); (void)sender; }
@@ -773,6 +775,11 @@ static void setupMenus(void) {
 		keyEquivalent:@""] autorelease];
 	[crtShaderItem setTarget:sMenuHandler];
 	[displayMenu addItem:crtShaderItem];
+    NSMenuItem *effectsItem = [[[NSMenuItem alloc]
+        initWithTitle:NSLocalizedString(@"Postprocessing...", nil)
+        action:@selector(openEffectsSettings:) keyEquivalent:@""] autorelease];
+    [effectsItem setTarget:sMenuHandler];
+    [displayMenu addItem:effectsItem];
 
 	// Docs menu — intentionally NOT named "Help" to prevent macOS from
 	// injecting its search bar (which requires an Apple Help Book bundle)
@@ -795,7 +802,7 @@ static void setupMenus(void) {
 	[helpMenu addItem:donateItem];
 }
 
-void initMenu(SDL_Window *window) {
+void initMenu(SDL_Window *window, SDL_Renderer* /*renderer*/) {
 	(void)window;
 	setupMenus();
 }
@@ -825,3 +832,5 @@ void setMenuTrackingCallback(MenuIterateCallback callback, void *appstate) {
 	                                           object:nil];
 }
 #endif
+
+void shutdownMenuRenderer() {}

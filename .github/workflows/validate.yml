@@ -1,0 +1,281 @@
+name: Validate Appletini and display effects
+
+on:
+  push:
+    branches: [main, 'codex/**', 'feature/**']
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: validate-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  shaders:
+    name: Compile every offline shader format
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: ${{ github.event.pull_request.head.repo.full_name || github.repository }}
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: '3.12'
+      - name: Build pinned shader tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ninja-build
+          python scripts/ci/install_shader_tools.py --prefix "$RUNNER_TEMP/shader-tools"
+      - name: Compile and identify shaders
+        run: |
+          shader_compiler="$(command -v glslangValidator || command -v glslang)"
+          python scripts/shaders/compile_postprocess.py --glslang "$shader_compiler"
+          python scripts/ci/shader_manifest.py --write
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: offline-shaders
+          path: assets/shaders/postprocess/
+          if-no-files-found: error
+          retention-days: 14
+
+  native:
+    name: Native ${{ matrix.runner }}
+    needs: shaders
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 80
+    strategy:
+      fail-fast: false
+      matrix:
+        runner: [macos-15, macos-15-intel, ubuntu-24.04]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: ${{ github.event.pull_request.head.repo.full_name || github.repository }}
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          submodules: recursive
+          persist-credentials: false
+      - name: Fetch history for the package version
+        run: git fetch --no-tags --unshallow origin "${{ github.event.pull_request.head.sha || github.sha }}"
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: '3.12'
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: offline-shaders
+          path: assets/shaders/postprocess/
+      - name: Verify shader provenance
+        run: python scripts/ci/shader_manifest.py
+      - name: Linux build and software GPU dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang ninja-build libasound2-dev libpulse-dev libudev-dev libx11-dev libxext-dev libxrandr-dev libxcursor-dev libxi-dev libxfixes-dev libxss-dev libxtst-dev libwayland-dev libxkbcommon-dev libdrm-dev libgbm-dev libgl1-mesa-dev libegl1-mesa-dev libvulkan-dev mesa-vulkan-drivers xvfb
+      - name: Configure and build
+        run: |
+          cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DGS2_PROGRAM_FILES=ON -DGS2_BUILD_NATIVE=ON
+          cmake --build build --parallel 3
+      - name: Native regression tests
+        env:
+          SDL_AUDIODRIVER: dummy
+        run: |
+          if [ "$RUNNER_OS" = Linux ]; then
+            xvfb-run -a ctest --test-dir build --output-on-failure --no-tests=error --output-junit ctest.xml
+          else
+            ctest --test-dir build --output-on-failure --no-tests=error --output-junit ctest.xml
+          fi
+      - name: Require GPU effects and run real Appletini guest smoke
+        env:
+          SDL_AUDIODRIVER: dummy
+        run: |
+          export GS2_TEST_RESOURCE_PATH="$PWD/build/resources"
+          export GS2_TEST_ARTIFACT_DIR="$PWD/build/smoke"
+          if [ "$RUNNER_OS" = Linux ]; then
+            xvfb-run -a build/postprocesstest --require-gpu
+            xvfb-run -a python scripts/test_appletini_guest.py --executable build/GSSquared
+          else
+            build/postprocesstest --require-gpu
+            python scripts/test_appletini_guest.py --executable build/GSSquared
+          fi
+      - name: Package and test macOS app
+        if: runner.os == 'macOS'
+        env:
+          SDL_AUDIODRIVER: dummy
+        run: |
+          cmake -S . -B build -DGS2_PROGRAM_FILES=OFF -DCMAKE_INSTALL_PREFIX="$PWD/build/package-root"
+          cmake --build build --parallel 3
+          cmake --install build --component Runtime
+          cpack --config build/CPackConfig.cmake -G DragNDrop -B dist
+          python scripts/test_appletini_guest.py --executable build/package-root/GSSquared.app/Contents/MacOS/GSSquared
+          codesign --verify --deep --strict build/package-root/GSSquared.app
+      - name: Package and test Linux AppImage
+        if: runner.os == 'Linux'
+        env:
+          SDL_AUDIODRIVER: dummy
+          APPIMAGE_EXTRACT_AND_RUN: '1'
+        run: |
+          python scripts/ci/install_packaging_tools.py --output "$RUNNER_TEMP/linuxdeploy-x86_64.AppImage"
+          cmake -S . -B build -DGS2_PROGRAM_FILES=OFF -DGS2_BUNDLE_LIBS=ON -DCMAKE_INSTALL_LIBDIR=lib -DLINUXDEPLOY_EXECUTABLE="$RUNNER_TEMP/linuxdeploy-x86_64.AppImage"
+          cmake --build build --target appimage --parallel 3
+          appimage="$(python -c 'from pathlib import Path; print(next(Path("build").glob("GSSquared*.AppImage")))')"
+          xvfb-run -a python scripts/test_appletini_guest.py --executable "$appimage"
+          mkdir -p dist
+          cp "$appimage" dist/
+      - name: Check unmodified dependencies
+        if: always()
+        run: python scripts/ci/check_dependencies.py
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: always()
+        with:
+          name: native-${{ matrix.runner }}
+          path: |
+            dist/
+            build/ctest.xml
+            build/Testing/Temporary/
+            build/smoke/
+            build/GSSquared
+            build/lib/
+            build/resources/
+          retention-days: 7
+
+  windows:
+    name: Windows MinGW64 and native DXIL
+    needs: shaders
+    runs-on: windows-2022
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: ${{ github.event.pull_request.head.repo.full_name || github.repository }}
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          submodules: recursive
+          persist-credentials: false
+      - name: Fetch history for the package version
+        run: git fetch --no-tags --unshallow origin "${{ github.event.pull_request.head.sha || github.sha }}"
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: '3.12'
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: offline-shaders
+          path: assets/shaders/postprocess/
+      - name: Verify packaged shaders and install native DXC
+        shell: pwsh
+        run: |
+          python scripts/ci/shader_manifest.py
+          python scripts/ci/install_shader_tools.py --dxc-only --prefix "$env:RUNNER_TEMP/shader-tools"
+      - name: Compile HLSL with Windows DXC
+        shell: pwsh
+        run: |
+          $dxc = Join-Path $env:RUNNER_TEMP 'shader-tools/dxc/bin/x64/dxc.exe'
+          foreach ($name in @('fullscreen.vert', 'fullscreen_target.vert', 'crt.frag', 'composite.frag')) {
+            $profile = if ($name.EndsWith('.vert')) { 'vs_6_0' } else { 'ps_6_0' }
+            $output = Join-Path $env:RUNNER_TEMP ($name + '.dxil')
+            & $dxc -T $profile -E main -Fo $output "assets/shaders/postprocess/$name.hlsl"
+            if ($LASTEXITCODE -ne 0) { throw "Windows DXIL compilation failed: $name" }
+            & $dxc -dumpbin $output | Out-Null
+            if ($LASTEXITCODE -ne 0) { throw "Windows DXIL validation failed: $name" }
+          }
+      - uses: msys2/setup-msys2@66cd2cce69caa17b53920067426061ca1de3a884 # v2.32.0
+        with:
+          msystem: MINGW64
+          update: true
+          install: >-
+            git make mingw-w64-x86_64-clang mingw-w64-x86_64-gcc
+            mingw-w64-x86_64-cmake mingw-w64-x86_64-ninja
+            mingw-w64-x86_64-pkgconf mingw-w64-x86_64-python
+      - name: Configure, build and test in MSYS2
+        shell: msys2 {0}
+        run: |
+          if [[ -f ~/.profile ]]; then source ~/.profile; fi
+          cmake -G Ninja -S . -B build -DCMAKE_BUILD_TYPE=Release -DGS2_PROGRAM_FILES=ON -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++
+          cmake --build build --parallel 3
+          export PATH="$PWD/build/lib:$PWD/build:$PATH"
+          ctest --test-dir build --output-on-failure --no-tests=error --output-junit ctest.xml
+          export GS2_TEST_RESOURCE_PATH="$(cygpath -m "$PWD/build/resources")"
+          export GS2_TEST_ARTIFACT_DIR="$(cygpath -m "$PWD/build/smoke")"
+          SDL_GPU_DRIVER=direct3d12 build/postprocesstest.exe --require-gpu
+          python scripts/test_appletini_guest.py --executable build/GSSquared.exe
+      - name: Package and test Windows ZIP
+        shell: msys2 {0}
+        run: |
+          if [[ -f ~/.profile ]]; then source ~/.profile; fi
+          cmake -S . -B build -DGS2_PROGRAM_FILES=OFF
+          cmake --build build --parallel 3 --target package
+          mkdir -p dist
+          cp build/gssquared-*.zip dist/
+          python -c 'import glob,zipfile; zipfile.ZipFile(glob.glob("dist/*.zip")[0]).extractall("build/unpacked")'
+          packaged="$(python -c 'from pathlib import Path; print(next(Path("build/unpacked").rglob("GSSquared.exe")))')"
+          python scripts/test_appletini_guest.py --executable "$packaged" --isolated-runtime
+      - name: Check unmodified dependencies
+        if: always()
+        shell: pwsh
+        run: python scripts/ci/check_dependencies.py
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: always()
+        with:
+          name: native-windows-mingw64
+          path: |
+            dist/
+            build/ctest.xml
+            build/Testing/Temporary/
+            build/smoke/
+            build/GSSquared.exe
+            build/lib/
+            build/resources/
+          retention-days: 7
+
+  browser:
+    name: Emscripten and Chromium WebGL2
+    needs: shaders
+    runs-on: ubuntu-24.04
+    timeout-minutes: 80
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: ${{ github.event.pull_request.head.repo.full_name || github.repository }}
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          submodules: recursive
+          persist-credentials: false
+      - name: Fetch history for the package version
+        run: git fetch --no-tags --unshallow origin "${{ github.event.pull_request.head.sha || github.sha }}"
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: '3.12'
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: offline-shaders
+          path: assets/shaders/postprocess/
+      - run: python scripts/ci/shader_manifest.py
+      - uses: emscripten-core/setup-emsdk@4528d102f7230f0e7b276855c01ea1159be0e984 # v16
+        with:
+          version: '6.0.9'
+      - name: Build web package
+        run: |
+          emcmake cmake -S . -B build-web -DCMAKE_BUILD_TYPE=Release
+          cmake --build build-web --target GSSquared --parallel 3
+      - name: Browser effects smoke
+        run: |
+          python -m pip install playwright==1.59.0 pillow==11.3.0
+          python -m playwright install --with-deps chromium
+          python scripts/ci/browser_smoke.py
+      - name: Package the tested browser application
+        run: |
+          python scripts/ci/package_web.py --build build-web --output dist/gssquared-web.zip
+      - name: Check unmodified dependencies
+        if: always()
+        run: python scripts/ci/check_dependencies.py
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: always()
+        with:
+          name: browser-webgl2
+          path: |
+            dist/gssquared-web.zip
+            build-web/GSSquared.*
+            build-web/smoke/
+          retention-days: 7

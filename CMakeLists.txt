@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.10)
+cmake_minimum_required(VERSION 3.16)
 
 # Prefer Clang over GCC on Linux/Mac. Must happen before project() so CMake
 # hasn't already detected and cached the default system compiler.
@@ -138,6 +138,8 @@ file(GLOB_RECURSE GS2_ASSET_FILES CONFIGURE_DEPENDS
     "${CMAKE_SOURCE_DIR}/assets/sounds/*"
     "${CMAKE_SOURCE_DIR}/assets/fonts/*"
     "${CMAKE_SOURCE_DIR}/assets/shaders/*"
+    "${CMAKE_SOURCE_DIR}/assets/postprocess/*"
+    "${CMAKE_SOURCE_DIR}/assets/licenses/*"
     "${CMAKE_SOURCE_DIR}/assets/gs2/*"
     "${CMAKE_SOURCE_DIR}/assets/vdisk/*"
 )
@@ -155,6 +157,8 @@ set(GS2_RESOURCES_STAMPS
     "${CMAKE_BINARY_DIR}/resources/sounds/.assembled.stamp"
     "${CMAKE_BINARY_DIR}/resources/fonts/.assembled.stamp"
     "${CMAKE_BINARY_DIR}/resources/shaders/.assembled.stamp"
+    "${CMAKE_BINARY_DIR}/resources/postprocess/.assembled.stamp"
+    "${CMAKE_BINARY_DIR}/resources/licenses/.assembled.stamp"
     "${CMAKE_BINARY_DIR}/resources/gs2/.assembled.stamp"
     "${CMAKE_BINARY_DIR}/resources/img/.assembled.stamp"
 )
@@ -179,6 +183,8 @@ add_custom_command(
     COMMAND ${CMAKE_COMMAND} -E copy_directory ${CMAKE_SOURCE_DIR}/assets/sounds ${CMAKE_BINARY_DIR}/resources/sounds
     COMMAND ${CMAKE_COMMAND} -E copy_directory ${CMAKE_SOURCE_DIR}/assets/fonts ${CMAKE_BINARY_DIR}/resources/fonts
     COMMAND ${CMAKE_COMMAND} -E copy_directory ${CMAKE_SOURCE_DIR}/assets/shaders ${CMAKE_BINARY_DIR}/resources/shaders
+    COMMAND ${CMAKE_COMMAND} -E copy_directory ${CMAKE_SOURCE_DIR}/assets/postprocess ${CMAKE_BINARY_DIR}/resources/postprocess
+    COMMAND ${CMAKE_COMMAND} -E copy_directory ${CMAKE_SOURCE_DIR}/assets/licenses ${CMAKE_BINARY_DIR}/resources/licenses
     COMMAND ${CMAKE_COMMAND} -E copy_directory ${CMAKE_SOURCE_DIR}/assets/gs2 ${CMAKE_BINARY_DIR}/resources/gs2
     COMMAND ${CMAKE_COMMAND} -E copy_directory ${CMAKE_SOURCE_DIR}/assets/vdisk ${CMAKE_BINARY_DIR}/resources/vdisk
 
@@ -221,15 +227,31 @@ function(configure_sdl_builds)
         set(SDLTTF_VENDORED ON)
     endif()
 
-    # Force rebuild SDL with these settings
-    add_subdirectory(${CMAKE_SOURCE_DIR}/vendored/SDL)
-    add_subdirectory(${CMAKE_SOURCE_DIR}/vendored/SDL_image)
-    add_subdirectory(${CMAKE_SOURCE_DIR}/vendored/SDL_ttf)
+    # Use an unmodified supported SDL outside vendored/. This supplies public
+    # GPU texture import/export needed by the full SuperDuperDisplay postprocessor.
+    set(GS2_SDL_SOURCE_DIR "" CACHE PATH "Existing unmodified SDL 3.4.16 source (optional)")
+    if(NOT GS2_SDL_SOURCE_DIR)
+        include(FetchContent)
+        FetchContent_Declare(gs2_stock_sdl
+            URL https://github.com/libsdl-org/SDL/releases/download/release-3.4.16/SDL3-3.4.16.tar.gz
+            URL_HASH SHA256=7322236cd12090c3eb40b9728be4d49c76f66ad17d04369584d4ecad5cf77c68)
+        FetchContent_GetProperties(gs2_stock_sdl)
+        if(NOT gs2_stock_sdl_POPULATED)
+            FetchContent_Populate(gs2_stock_sdl)
+        endif()
+        set(GS2_SDL_SOURCE_DIR "${gs2_stock_sdl_SOURCE_DIR}")
+    endif()
+    add_subdirectory("${GS2_SDL_SOURCE_DIR}" "${CMAKE_BINARY_DIR}/_deps/stock-sdl-build")
+    set(GS2_SDL_IMAGE_SOURCE_DIR "${CMAKE_SOURCE_DIR}/vendored/SDL_image" CACHE PATH "Unmodified SDL_image source directory")
+    add_subdirectory("${GS2_SDL_IMAGE_SOURCE_DIR}" "${CMAKE_BINARY_DIR}/_deps/SDL_image-build")
+    set(GS2_SDL_TTF_SOURCE_DIR "${CMAKE_SOURCE_DIR}/vendored/SDL_ttf" CACHE PATH "Unmodified SDL_ttf source directory")
+    add_subdirectory("${GS2_SDL_TTF_SOURCE_DIR}" "${CMAKE_BINARY_DIR}/_deps/SDL_ttf-build")
     # SDL_net has no Emscripten backend (its interface-enumeration code is a hard
     # #error for unknown platforms). It is only used by the modem device, which
     # we exclude from the web build, so skip building it entirely there.
     if(NOT EMSCRIPTEN)
-        add_subdirectory(${CMAKE_SOURCE_DIR}/vendored/SDL_net)
+        set(GS2_SDL_NET_SOURCE_DIR "${CMAKE_SOURCE_DIR}/vendored/SDL_net" CACHE PATH "Unmodified SDL_net source directory")
+    add_subdirectory("${GS2_SDL_NET_SOURCE_DIR}" "${CMAKE_BINARY_DIR}/_deps/SDL_net-build")
     endif()
     set(BUILD_SHARED_LIBS OFF)
 endfunction()
@@ -326,7 +348,7 @@ add_library(gs2_util_audio src/devices/speaker/LowPass.cpp src/devices/speaker/S
 
 add_library(gs2_devices_pdblock2 src/devices/pdblock2/pdblock2.cpp )
 
-add_library(gs2_devices_pdblock3 src/devices/pdblock3/pdblock3.cpp )
+add_library(gs2_devices_pdblock3 src/devices/pdblock3/pdblock3.cpp src/devices/pdblock3/AppletiniTextOverlayDevice.cpp )
 
 add_library(gs2_devices_prodos_clock src/devices/prodos_clock/prodos_clock.cpp )
 
@@ -503,13 +525,22 @@ add_library(gs2_ui src/ui/AssetAtlas.cpp src/ui/Container.cpp src/ui/DiskII_Butt
     src/ui/DirtyDiskSave.cpp src/ui/QuitModal.cpp src/ui/ScrollBar.cpp src/ui/WrapContainer.cpp
     src/ui/StorageButtonFactory.cpp src/ui/SlotsPanel.cpp src/ui/SystemBadge.cpp src/ui/ConfigSelectors.cpp
     src/ui/EditSystem.cpp
+    src/ui/EffectsPanel.cpp src/ui/NumericSlider.cpp
+    src/display/postprocess/PostProcessPreset.cpp src/display/postprocess/PresetStore.cpp
     src/ui/SerialPortButton.cpp src/ui/SerialPortsOSD.cpp
 )
 
-add_library(gs2_displaypp src/devices/displaypp/frame/frame_bit.cpp src/devices/displaypp/frame/frame_byte.cpp
+add_library(gs2_displaypp src/devices/displaypp/generate/AppletiniTextOverlay.cpp src/devices/displaypp/generate/AppletiniTextOverlayFont.cpp src/devices/displaypp/frame/frame_bit.cpp src/devices/displaypp/frame/frame_byte.cpp
     src/devices/displaypp/CharRom.cpp src/devices/displaypp/AppleIIgsColors.cpp
     src/devices/displaypp/generate/AppleII.cpp
     src/devices/displaypp/generate/AppletiniVideo.cpp)
+
+add_library(gs2_postprocess src/display/postprocess/PostProcessor.cpp)
+target_link_libraries(gs2_postprocess PUBLIC gs2_ntsc ${GS2_SDL3} ${GS2_SDL3_IMAGE})
+if(UNIX AND NOT APPLE AND NOT EMSCRIPTEN)
+    find_package(OpenGL REQUIRED)
+    target_link_libraries(gs2_postprocess PUBLIC OpenGL::GL)
+endif()
 
 add_library(gs2_ntsc
     src/display/ntsc.cpp
@@ -686,6 +717,7 @@ target_link_libraries(GSSquared
     #gs2_util
     gs2_util_audio
     gs2_ui
+    gs2_postprocess
     gs2_event_dispatcher
     gs2_displaypp
     gs2_message_bus
@@ -757,6 +789,15 @@ if(NOT EMSCRIPTEN)
     add_subdirectory(apps/systemconfigtest)
     add_subdirectory(apps/appletinivideotest)
     add_subdirectory(apps/appletinispeedtest)
+    add_subdirectory(apps/appletinitexttest)
+    add_subdirectory(apps/appletinismartporttest)
+    if(UNIX AND NOT APPLE)
+        find_package(OpenGL REQUIRED)
+    endif()
+    add_subdirectory(apps/postprocesstest)
+    add_subdirectory(apps/postprocesspresettest)
+    add_subdirectory(apps/capturetest)
+    add_subdirectory(apps/renderresourcetest)
 endif()
 
 ################################################################################
@@ -949,6 +990,23 @@ endif()
 ## Windows packaging targets
 
 if(WIN32)
+    # MSYS2 can live anywhere (including a CI runner's temporary directory).
+    # Locate the runtimes beside the selected compiler so release ZIPs do not
+    # silently rely on a developer's PATH or a hard-coded C:/msys64 install.
+    set(GS2_MINGW_RUNTIME_DLLS)
+    if(MINGW)
+        get_filename_component(_gs2_compiler_bindir "${CMAKE_CXX_COMPILER}" DIRECTORY)
+        foreach(_gs2_runtime libgcc_s_seh-1.dll libstdc++-6.dll libwinpthread-1.dll)
+            unset(_gs2_runtime_path CACHE)
+            find_file(_gs2_runtime_path NAMES "${_gs2_runtime}"
+                HINTS "${_gs2_compiler_bindir}" NO_DEFAULT_PATH)
+            if(NOT _gs2_runtime_path)
+                message(FATAL_ERROR "Required MinGW runtime ${_gs2_runtime} was not found beside ${CMAKE_CXX_COMPILER}")
+            endif()
+            list(APPEND GS2_MINGW_RUNTIME_DLLS "${_gs2_runtime_path}")
+        endforeach()
+        unset(_gs2_runtime_path CACHE)
+    endif()
     if(GS2_PROGRAM_FILES)
         message(STATUS "Windows: Installing for PROGRAM_FILES (in-place run)")
         # Install main executable
@@ -967,12 +1025,9 @@ if(WIN32)
         )
         # Install MinGW runtime DLLs to bin
         install(FILES
-            C:/msys64/mingw64/bin/libgcc_s_seh-1.dll
-            C:/msys64/mingw64/bin/libstdc++-6.dll
-            C:/msys64/mingw64/bin/libwinpthread-1.dll
+            ${GS2_MINGW_RUNTIME_DLLS}
             DESTINATION bin
             COMPONENT Runtime
-            OPTIONAL
         )
         # Install import libs to lib (optional for devs)
         install(FILES
@@ -1005,12 +1060,9 @@ if(WIN32)
         )
         # Install MinGW runtime DLLs to root
         install(FILES
-            C:/msys64/mingw64/bin/libgcc_s_seh-1.dll
-            C:/msys64/mingw64/bin/libstdc++-6.dll
-            C:/msys64/mingw64/bin/libwinpthread-1.dll
+            ${GS2_MINGW_RUNTIME_DLLS}
             DESTINATION .
             COMPONENT Runtime
-            OPTIONAL
         )
         install(FILES
             ${CMAKE_BINARY_DIR}/lib/libSDL3.dll.a
@@ -1158,6 +1210,8 @@ if((UNIX) AND NOT CMAKE_SYSTEM_NAME STREQUAL "Darwin" AND NOT EMSCRIPTEN)
             DESTINATION "${GS2_INSTALL_DATADIR}"
             COMPONENT Runtime
         )
+        install(DIRECTORY "${CMAKE_BINARY_DIR}/resources/postprocess" "${CMAKE_BINARY_DIR}/resources/licenses"
+            DESTINATION "${GS2_INSTALL_DATADIR}" COMPONENT Runtime)
         install(FILES "${CMAKE_BINARY_DIR}/resources/img/atlas.png"
             DESTINATION "${GS2_INSTALL_DATADIR}/img"
             COMPONENT Runtime
@@ -1327,6 +1381,9 @@ if(EMSCRIPTEN)
         -sSTACK_SIZE=4mb
         -sEXPORTED_RUNTIME_METHODS=ccall,cwrap,FS,stringToNewUTF8,UTF8ToString
         -sFORCE_FILESYSTEM=1
+        -sMIN_WEBGL_VERSION=2
+        -sMAX_WEBGL_VERSION=2
+        -lidbfs.js
         --preload-file ${GS2_WEB_PRELOAD}
         --shell-file ${CMAKE_SOURCE_DIR}/assets/web/shell.html
     )
@@ -1343,4 +1400,9 @@ if(EMSCRIPTEN)
 
     # The preload step must run after resources are assembled.
     add_dependencies(GSSquared assemble_resources)
+endif()
+
+if(UNIX AND NOT APPLE AND NOT EMSCRIPTEN)
+    find_package(OpenGL REQUIRED)
+    target_link_libraries(GSSquared PRIVATE OpenGL::GL)
 endif()

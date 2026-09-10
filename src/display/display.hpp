@@ -19,6 +19,7 @@
 
 #include "gs2.hpp"
 #include "videosystem.hpp"
+#include "display/RendererResource.hpp"
 
 #define SCALE_X 2
 #define SCALE_Y 4
@@ -29,6 +30,7 @@
 #include "devices/displaypp/render/NTSC560.hpp"
 #include "devices/displaypp/frame/Frames.hpp"
 #include "devices/displaypp/generate/AppletiniVideo.hpp"
+#include <vector>
 //#include "devices/displaypp/render/GSRGB560.hpp"
 //#include "devices/displaypp/generate/AppleII.cpp"
 #include "devices/displaypp/VideoScanner.hpp"
@@ -182,6 +184,12 @@ public:
     AppleII_View *appletini_page_renderer = nullptr;
     Frame560RGBA *appletini_field_a = nullptr;
     Frame560RGBA *appletini_field_b = nullptr;
+    std::vector<RGBA_t> appletini_legacy_page_a;
+    std::vector<RGBA_t> appletini_legacy_page_b;
+    std::vector<RGBA_t> appletini_legacy_pixels;
+    std::vector<RGBA_t> appletini_shr_pixels;
+    RendererResource appletini_renderer_resource;
+    uint8_t appletini_last_texture_kind = 0;
     SDL_Texture *appletini_legacy_texture = nullptr;
     SDL_Texture *appletini_shr_texture = nullptr;
 

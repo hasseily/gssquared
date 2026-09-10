@@ -4,6 +4,7 @@
 
 inline bool should_enable_appletini_ramworks(const SystemConfig_t& config)
 {
+    if (!config.appletini.ramworks) return false;
     if (config.platform_id != PLATFORM_APPLE_IIE
         && config.platform_id != PLATFORM_APPLE_IIE_ENHANCED) {
         return false;

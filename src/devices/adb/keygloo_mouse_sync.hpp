@@ -176,8 +176,17 @@ inline void host_to_a2(computer_t *computer, float render_x, float render_y, int
 inline void window_to_render_coords(video_system_t *vs, float wx, float wy, float &rx, float &ry) {
     rx = wx;
     ry = wy;
-    if (vs && vs->renderer) {
-        SDL_RenderCoordinatesFromWindow(vs->renderer, wx, wy, &rx, &ry);
+    // The SDL renderer is offscreen. Its scene scale is an implementation
+    // detail; guest_content_rect is expressed in window drawable pixels.
+    if (vs && vs->window) {
+        int points_w = 0, points_h = 0, pixels_w = 0, pixels_h = 0;
+        if (SDL_GetWindowSize(vs->window, &points_w, &points_h) &&
+            SDL_GetWindowSizeInPixels(vs->window, &pixels_w, &pixels_h) &&
+            points_w > 0 && points_h > 0) {
+            rx = wx * static_cast<float>(pixels_w) / points_w;
+            ry = wy * static_cast<float>(pixels_h) / points_h;
+            vs->map_output_to_scene(rx, ry);
+        }
     }
 }
 

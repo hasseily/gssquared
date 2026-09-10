@@ -247,7 +247,7 @@ bool validate_cards(const SystemConfig_t& config, PlatformId_t platform,
     return true;
 }
 
-bool validate_storage(const std::vector<disk_mount_t>& mounts, std::string& error_out) {
+bool validate_storage(const std::vector<disk_mount_t>& mounts, const SystemConfig_t& config, std::string& error_out) {
     std::unordered_set<uint32_t> seen;
     for (const auto& mount : mounts) {
         if (mount.slot >= NUM_SLOTS) {
@@ -255,8 +255,9 @@ bool validate_storage(const std::vector<disk_mount_t>& mounts, std::string& erro
             return false;
         }
         const int drive_1based = static_cast<int>(mount.drive) + 1;
-        if (drive_1based < 1 || drive_1based > 6) {
-            error_out = "Storage drive out of range (1-6): " + std::to_string(drive_1based);
+        const int max_drive = config.slot_devices[mount.slot] == DEVICE_ID_APPLETINI ? 8 : 6;
+        if (drive_1based < 1 || drive_1based > max_drive) {
+            error_out = "Storage drive out of range (1-" + std::to_string(max_drive) + "): " + std::to_string(drive_1based);
             return false;
         }
         const uint32_t key = (static_cast<uint32_t>(mount.slot) << 16)
@@ -573,6 +574,16 @@ bool SystemConfig::save(const std::string& path, std::string& error_out) {
     out << "clock = \"" << clock_name(config_data_.clock_set) << "\"\n";
     out << "scanner = \"" << scanner_name(config_data_.scanner_type) << "\"\n";
     out << "builtin = false\n";
+    if (config_data_.slot_devices[SLOT_7] == DEVICE_ID_APPLETINI) {
+        const auto& a = config_data_.appletini;
+        out << "\n[appletini]\n" << std::boolalpha
+            << "accelerator = " << a.accelerator << "\n"
+            << "ignore_c074 = " << a.ignore_c074 << "\n"
+            << "ramworks = " << a.ramworks << "\n"
+            << "ram32 = " << a.ram32 << "\n"
+            << "speed = \"" << appletini_speed_name(a.speed) << "\"\n";
+    }
+
 
     for (int slot = 0; slot < NUM_SLOTS; ++slot) {
         const device_id id = config_data_.slot_devices[slot];
@@ -703,7 +714,7 @@ bool SystemConfig::finalize_load(std::string& error_out) {
     if (!validate_cards(config_data_, config_data_.platform_id, &card_extras_, &warnings_, error_out)) {
         return false;
     }
-    if (!validate_storage(mounts_, error_out)) {
+    if (!validate_storage(mounts_, config_data_, error_out)) {
         return false;
     }
     if (!validate_connections(config_data_.platform_id, connections_, error_out)) {
@@ -800,6 +811,29 @@ bool SystemConfig::load_gs2(const std::string& path, std::string& error_out) {
     }
 
     sync_config_pointers();
+
+    if (const auto node = table["appletini"]; node) {
+        const auto* settings = node.as_table();
+        if (!settings) { error_out = "appletini must be a table"; return false; }
+        for (const auto& [key, value] : *settings) {
+            const std::string name(key.str());
+            if (name == "speed") {
+                const auto text = value.value<std::string>();
+                const auto speed = text ? appletini_parse_speed(*text) : std::nullopt;
+                if (!speed) { error_out = "Invalid Appletini speed"; return false; }
+                config_data_.appletini.speed = *speed;
+                continue;
+            }
+            bool* target = name == "accelerator" ? &config_data_.appletini.accelerator :
+                name == "ignore_c074" ? &config_data_.appletini.ignore_c074 :
+                name == "ramworks" ? &config_data_.appletini.ramworks :
+                name == "ram32" ? &config_data_.appletini.ram32 : nullptr;
+            if (!target) { warnings_.push_back("Unknown Appletini setting: " + name); continue; }
+            const auto boolean = value.value<bool>();
+            if (!boolean) { error_out = "Appletini " + name + " must be boolean"; return false; }
+            *target = *boolean;
+        }
+    }
 
     const std::string base_dir = Paths::get_directory(path);
 

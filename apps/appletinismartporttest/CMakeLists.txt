@@ -1,0 +1,3 @@
+add_executable(appletinismartporttest main.cpp)
+target_include_directories(appletinismartporttest PRIVATE ${PROJECT_SOURCE_DIR}/src)
+add_test(NAME appletinismartporttest COMMAND appletinismartporttest)

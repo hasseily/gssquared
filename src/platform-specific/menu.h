@@ -25,6 +25,7 @@ enum MenuEventCode {
 	MENU_HUD_DRIVES,
 	MENU_DISPLAY_SS_TEXT,
 	MENU_DISPLAY_CRT_SHADER,
+	MENU_DISPLAY_EFFECTS,
 
 	MENU_EDIT_COPY_SCREEN = 400,
 	MENU_EDIT_PASTE_TEXT,
@@ -49,7 +50,8 @@ enum MenuEventCode {
 
 typedef SDL_AppResult (*MenuIterateCallback)(void *appstate);
 
-void initMenu(SDL_Window* window);
+void initMenu(SDL_Window* window, SDL_Renderer* renderer = nullptr);
+void shutdownMenuRenderer();
 void setMenuTrackingCallback(MenuIterateCallback callback, void *appstate);
 
 // Called from SDL_AppEvent; returns true if the event was consumed by the menu.

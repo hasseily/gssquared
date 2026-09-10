@@ -248,7 +248,19 @@ void MMU_II::write(uint32_t address, uint8_t value) {
     // if there is a write handler, call it instead of writing directly.
     page_table_entry_t *pte = &page_table[page];
     if (pte->write_h.write != nullptr) pte->write_h.write(pte->write_h.context, eaddress, value);
-    else if (pte->write_p) pte->write_p[eaddress & 0xFF] = value;
+    else if (pte->write_p) {
+        pte->write_p[eaddress & 0xFF] = value;
+        if (ram_write_observer_.write && eaddress < 0xC000) {
+            // A page may point into another RamWorks allocation. Only the
+            // main/base-aux physical banks appear in the Appletini bus stream.
+            const uintptr_t location = reinterpret_cast<uintptr_t>(pte->write_p);
+            const uintptr_t base = reinterpret_cast<uintptr_t>(main_ram);
+            if (location >= base && location - base < ram_size_
+                && location - base < 0x20000) {
+                notify_ram_write(eaddress | (location - base >= 0x10000 ? 0x10000u : 0u), value);
+            }
+        }
+    }
     if (pte->shadow_h.write != nullptr) pte->shadow_h.write(pte->shadow_h.context, eaddress, value);
 
     /* MMU::write(address, value); */

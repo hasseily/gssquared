@@ -46,13 +46,23 @@ AssetAtlas_t::AssetAtlas_t(SDL_Renderer *renderer, const char *path, int target_
         SDL_Surface* scaled = SDL_CreateSurface(target_w, target_h, PIXEL_FORMAT);
         SDL_BlitSurfaceScaled(original, NULL, scaled, NULL, SDL_SCALEMODE_LINEAR);
         image = SDL_CreateTextureFromSurface(renderer, scaled);
-        SDL_DestroySurface(scaled);
+        source_surface = scaled;
         default_element = {0, 0, (float)target_w, (float)target_h};
     } else {
         image = SDL_CreateTextureFromSurface(renderer, original);
-        default_element = {0, 0, (float)original->w, (float)original->h};
+        source_surface = original;
+        original = nullptr;
+        default_element = {0, 0, (float)source_surface->w, (float)source_surface->h};
     }
     SDL_DestroySurface(original);
+    renderer_resource.register_owner(renderer, [this]() {
+        SDL_DestroyTexture(image);
+        image = nullptr;
+    }, [this](SDL_Renderer* replacement) {
+        this->renderer = replacement;
+        image = SDL_CreateTextureFromSurface(replacement, source_surface);
+        if (!image) throw std::runtime_error("Failed to restore asset atlas");
+    });
 };
 
 void AssetAtlas_t::set_elements(int NumElements, SDL_FRect *Elements)  {
@@ -91,6 +101,7 @@ void AssetAtlas_t::draw(int id, int dst_x, int dst_y, int opacity) {
 
 AssetAtlas_t::~AssetAtlas_t() {
     SDL_DestroyTexture(image);
+    SDL_DestroySurface(source_surface);
 /*     if (elements) {
         delete[] elements;
     } */

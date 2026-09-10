@@ -135,12 +135,26 @@ void test_ludicrous_speed() {
            "$00 restores the calibrated unlimited-speed multiplier");
 }
 
-void test_unhandled_value() {
+void test_firmware_108_control() {
     AppletiniSpeedControl speed;
-    const AppletiniSpeedTransition transition = speed.write(
-        0x02, CLOCK_7_159MHZ, 1);
-    expect(!transition.apply && !speed.slow_locked(),
-           "unsupported $C074 values do not change speed");
+    auto result = speed.write(0xFE, CLOCK_7_159MHZ, 1);
+    expect(result.apply && speed.slow_locked(), "low two bits decode state 2 as native speed");
+    result = speed.write(0xFC, CLOCK_1_024MHZ, 1);
+    expect(result.apply && result.mode == CLOCK_7_159MHZ, "masked zero restores speed");
+    result = speed.write(0xFF, CLOCK_FREE_RUN, 9);
+    expect(result.apply && speed.off_until_reset(), "masked state 3 latches off until reset");
+    expect(!speed.write(0, CLOCK_1_024MHZ, 1).apply, "zero cannot release state 3");
+    result = speed.reset();
+    expect(result.apply && result.mode == CLOCK_FREE_RUN && result.cpu_per_14m == 9,
+        "Apple reset restores speed and unlimited multiplier");
+    expect(!speed.off_until_reset() && !speed.slow_locked(), "reset clears both latches");
+    speed.configure(false, false);
+    expect(!speed.write(1, CLOCK_7_159MHZ, 1).apply, "disabled accelerator leaves host timing alone");
+    speed.configure(true, true);
+    expect(!speed.write(3, CLOCK_7_159MHZ, 1).apply, "ignore switch bypasses software override");
+    speed.configure(true, false);
+    expect(speed.write(1, CLOCK_7_159MHZ, 1).apply, "enabled override can slow again");
+    expect(speed.reset().mode == CLOCK_7_159MHZ, "ordinary slow latch clears on reset");
 }
 
 } // namespace
@@ -152,7 +166,7 @@ int main() {
     test_iigs_sync_bypasses_fixed_33();
     test_fixed_33_toggle_order();
     test_ludicrous_speed();
-    test_unhandled_value();
+    test_firmware_108_control();
 
     if (failures != 0) {
         std::fprintf(stderr, "%d Appletini speed tests failed\n", failures);

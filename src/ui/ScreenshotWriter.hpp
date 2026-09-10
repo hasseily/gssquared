@@ -13,15 +13,11 @@
 #include <cstdint>
 #include <cstring>
 #include <string>
+#include <vector>
 
 #include <SDL3/SDL.h>
 
 #include "util/EventQueue.hpp"
-
-// screencap_texture is 910x263; PNG output doubles scanlines for aspect.
-#define MAX_SCREENSHOT_WIDTH 910
-#define MAX_SCREENSHOT_SRC_HEIGHT 263
-#define MAX_SCREENSHOT_HEIGHT (MAX_SCREENSHOT_SRC_HEIGHT * 2)
 
 /** Status message from worker → main. Copied by value into the SPSC ring. */
 struct ScreenshotStatusMsg {
@@ -39,19 +35,20 @@ class ScreenshotStatusQueue {
     constexpr static uint32_t queue_mask = queue_depth - 1;
 
     ScreenshotStatusMsg queue[queue_depth]{};
-    uint32_t head = 0;
-    uint32_t tail = 0;
+    std::atomic<uint32_t> head{0};
+    std::atomic<uint32_t> tail{0};
 
 public:
-    inline bool is_empty() const { return head == tail; }
-    inline bool is_full() const { return ((head + 1) & queue_mask) == tail; }
+    inline bool is_empty() const { return head.load(std::memory_order_acquire) == tail.load(std::memory_order_relaxed); }
+    inline bool is_full() const { return ((head.load(std::memory_order_relaxed) + 1) & queue_mask) == tail.load(std::memory_order_acquire); }
 
     inline ScreenshotStatusMsg get() {
         if (is_empty()) {
             return ScreenshotStatusMsg{};
         }
-        ScreenshotStatusMsg msg = queue[tail];
-        tail = (tail + 1) & queue_mask;
+        const auto current = tail.load(std::memory_order_relaxed);
+        ScreenshotStatusMsg msg = queue[current];
+        tail.store((current + 1) & queue_mask, std::memory_order_release);
         return msg;
     }
 
@@ -59,14 +56,15 @@ public:
         if (is_full()) {
             return false;
         }
-        queue[head] = msg;
-        head = (head + 1) & queue_mask;
+        const auto current = head.load(std::memory_order_relaxed);
+        queue[current] = msg;
+        head.store((current + 1) & queue_mask, std::memory_order_release);
         return true;
     }
 };
 
 class ScreenshotWriter {
-    uint8_t *buffer_ = nullptr;
+    std::vector<uint8_t> buffer_;
     int width_ = 0;
     int height_ = 0;
     std::string path_;
@@ -87,10 +85,11 @@ public:
     ScreenshotWriter(const ScreenshotWriter &) = delete;
     ScreenshotWriter &operator=(const ScreenshotWriter &) = delete;
 
-    /** Copy surface (with scanline doubling) into the prealloc buffer and wake the worker.
-     *  Returns false if a write is already pending or the surface is too large.
+    /** Copy/convert a surface and wake the worker. Already composed captures
+     *  keep their dimensions; raw legacy captures may request scanline doubling.
+     *  Returns false if a write is already pending or conversion fails.
      *  Main thread only. */
-    bool try_submit(SDL_Surface *surface, const std::string &path);
+    bool try_submit(SDL_Surface *surface, const std::string &path, bool double_vertical = false);
     bool is_pending() const { return pending_.load(std::memory_order_acquire); }
 
     /** Drain worker status messages into EventQueue. Main thread only; never blocks. */

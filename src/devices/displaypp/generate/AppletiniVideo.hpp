@@ -41,6 +41,14 @@ bool appletini_legacy_load_hold_requested(const uint8_t *main_bank);
 /* An Apple reset aborts an interrupted loader transaction. */
 void appletini_legacy_reset_load_hold(uint8_t *main_bank);
 
+/* Compose two decoded 192-row pages using firmware's scanline (HGR) or
+   four-scanline nibble-band (LGR) weaving. Mode 2 merges once at 192 rows.
+   Inputs may already contain their respective mixed-text rows. */
+size_t appletini_compose_legacy_fields(const RGBA_t* page1, const RGBA_t* page2,
+                                      size_t width, size_t input_stride,
+                                      RGBA_t* output, size_t output_stride,
+                                      bool hires, uint8_t page_mode);
+
 /* Render the Appletini SHR surface as 640x400 RGBA pixels. Main and aux
    point at complete, linear 64 KiB Apple II banks. */
 AppletiniSHRRenderInfo appletini_render_shr(const uint8_t *main_bank,

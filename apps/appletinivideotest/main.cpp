@@ -8,8 +8,11 @@
 #include <string>
 #include <vector>
 
+#include "gs2.hpp"
 #include "devices/displaypp/generate/AppleII.hpp"
 #include "devices/displaypp/generate/AppletiniVideo.hpp"
+
+gs2_app_t gs2_app_values;
 
 namespace {
 
@@ -380,6 +383,35 @@ int render_file(const char *input_path, const char *output_path) {
 
 } // namespace
 
+void test_legacy_field_composition() {
+    constexpr size_t width = 3;
+    std::vector<RGBA_t> first(width * 192), second(width * 192), output(5 * 384);
+    for (size_t y = 0; y < 192; ++y) {
+        for (size_t x = 0; x < width; ++x) {
+            first[y * width + x] = RGBA_t::make(y, x, 11, 255);
+            second[y * width + x] = RGBA_t::make(y, x + 100, 20, 255);
+        }
+    }
+    for (const bool hires : {false, true}) {
+        expect(appletini_compose_legacy_fields(first.data(), second.data(), width, width,
+            output.data(), 5, hires, 1) == 384, "interlace outputs 384 rows");
+        for (size_t y = 0; y < 384; ++y) {
+            // Independently express the documented four-line LGR band layout.
+            const size_t source_y = hires ? y / 2 : (y / 8) * 4 + y % 4;
+            const size_t page = hires ? y % 2 : (y / 4) % 2;
+            for (size_t x = 0; x < width; ++x)
+                expect(color_is(output[y * 5 + x], source_y, x + page * 100, page ? 20 : 11),
+                    "firmware A2Li scanline/nibble-band mapping including mixed-text region");
+        }
+        expect(appletini_compose_legacy_fields(first.data(), second.data(), width, width,
+            output.data(), 5, hires, 2) == 192, "flip merge retains 192 logical rows");
+        for (size_t y = 0; y < 192; ++y)
+            expect(color_is(output[y * 5], y, 50, 15), "flip fields use byte-exact floor average once");
+    }
+    expect(appletini_compose_legacy_fields(first.data(), second.data(), width, width,
+        output.data(), 2, true, 1) == 0, "invalid output stride rejected");
+}
+
 int main(int argc, char **argv) {
     if (argc == 4 && std::string(argv[1]) == "--render") {
         return render_file(argv[2], argv[3]);
@@ -389,6 +421,7 @@ int main(int argc, char **argv) {
     std::vector<uint8_t> aux(65536);
     std::vector<RGBA_t> output(WIDTH * HEIGHT);
 
+    test_legacy_field_composition();
     test_base_shr(main, aux, output);
     test_shr4_r4g4b4(main, aux, output);
     test_shr4_rggb(main, aux, output);

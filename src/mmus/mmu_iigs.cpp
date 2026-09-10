@@ -66,6 +66,7 @@ inline void bank_e1_write(void *context, uint32_t address, uint8_t value) {
         if (a16 >= 0xD000 && !mmu_iigs->is_lc_write_enable()) return; // LC write protected
         uint8_t *ram = mmu_iigs->megaii->get_memory_base();
         ram[mmu_iigs->e1_aux_index(a16)] = value;
+        mmu_iigs->megaii->notify_ram_write(0x10000u | a16, value);
     }
 }
 

@@ -18,8 +18,11 @@
 
 #include <vector>
 #include <map>
+#include <memory>
+class EffectsPanel_t;
 
 #include <SDL3/SDL.h>
+#include "display/RendererResource.hpp"
 #include "util/MenuInterface.h"
 #include "MainAtlas.hpp"
 #include "NClock.hpp"
@@ -128,12 +131,14 @@ protected:
     TextRenderer *text_render = nullptr;
     TextRenderer *title_trender = nullptr;
     UIContext ui_ctx;
+    RendererResource renderer_resource_;
 
     /* std::string headsUpMessageText;
     int headsUpMessageCount = 0; */
     StatusMessage_t *status_message = nullptr;
 
     modal_stack mstack;
+    std::unique_ptr<EffectsPanel_t> effects_panel_;
 
     int slideStatusBeforeDrop = SLIDE_NONE;
 
