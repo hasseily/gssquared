@@ -755,6 +755,7 @@ if(NOT EMSCRIPTEN)
 
     add_subdirectory(apps/systemconfigtest)
     add_subdirectory(apps/videoscanregressiontest)
+    add_subdirectory(apps/capturetest)
 endif()
 
 ################################################################################
