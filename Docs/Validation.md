@@ -23,9 +23,14 @@ compiler installation.
 
 The browser test serves the real package with COOP/COEP headers, starts an
 Appletini system under Chromium/WebGL2, loads a full effects preset, toggles
-effects, resizes, and exercises `WEBGL_lose_context`. Recovery must preserve
-RAM and PC, restore the settings panel and effects, and produce a nonblank
-frame. Screenshots and browser logs are retained as workflow artifacts.
+effects, reloads saved settings from IDBFS, checks backing-buffer resizing,
+and exercises `WEBGL_lose_context`. Recovery must preserve RAM and PC, restore
+the settings panel and effects, and produce a nonblank frame. The static
+panel pixels are compared before and after recovery. Screenshots and browser
+logs are retained as workflow artifacts.
+The same test uses the canvas controls to select a preset, type a numeric
+value, scroll, save a new preset, cancel and reopen the import picker, import
+a JSON file, and verify the exported browser download.
 `renderresourcetest` independently replaces the renderer three times and
 compares the exact frame, asset atlas, and font-rendering output.
 
@@ -48,6 +53,8 @@ Linux GUI tests need a display; `xvfb-run -a` with Mesa's Vulkan/OpenGL software
 drivers provides one on headless machines. The ordinary CTest GPU case can
 skip when there is no GPU/display; CI runs the explicit `--require-gpu` check
 to prevent a skip from counting as graphics validation.
+Linux also forces the OpenGL fallback and runs the same pixel regressions with
+`SDL_GPU_DRIVER=unavailable build/postprocesstest --require-opengl` under Xvfb.
 
 For a prebuilt Emscripten package:
 

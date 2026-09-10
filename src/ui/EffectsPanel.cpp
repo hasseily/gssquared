@@ -89,9 +89,9 @@ void EffectsPanel_t::layout() {
     close_->set_position(tp.x + w - 118, tp.y + h - 42); close_->size(98, 28);
 }
 
-void EffectsPanel_t::changed() {
+void EffectsPanel_t::changed(bool reload_assets) {
     video_->postprocess_settings_changed();
-    if (loaded_bezel_ != settings_.bezelName || loaded_glass_ != settings_.glassName) {
+    if (reload_assets || loaded_bezel_ != settings_.bezelName || loaded_glass_ != settings_.glassName) {
         std::string bezel, glass; resolve_assets(settings_, bezel, glass);
         video_->set_postprocess_assets(bezel, glass);
         loaded_bezel_ = settings_.bezelName; loaded_glass_ = settings_.glassName;
@@ -114,7 +114,7 @@ void EffectsPanel_t::select_preset(int direction) {
     if (preset_index_ < 0 && direction < 0) preset_index_ = 0;
     preset_index_ = (preset_index_ + direction + static_cast<int>(presets_.size())) % presets_.size();
     if (load_preset(presets_[preset_index_].path, settings_, message_)) {
-        name_->set_text(settings_.preset_name); changed();
+        name_->set_text(settings_.preset_name); changed(true);
     }
 }
 void EffectsPanel_t::select_bezel(int direction) {
@@ -163,7 +163,7 @@ void EffectsPanel_t::update() {
             else if (save) {
                 if (std::filesystem::path(path).extension().empty()) path += ".json";
                 if (save_preset(path, settings_, message_)) message_ = "Preset exported";
-            } else if (load_preset(path, settings_, message_)) { name_->set_text(settings_.preset_name); changed(); }
+            } else if (load_preset(path, settings_, message_)) { name_->set_text(settings_.preset_name); changed(true); }
         }
     }
     if (dirty_ && SDL_GetTicks() - changed_at_ >= 400) persist();

@@ -796,8 +796,10 @@ if(NOT EMSCRIPTEN)
     endif()
     add_subdirectory(apps/postprocesstest)
     add_subdirectory(apps/postprocesspresettest)
+    add_subdirectory(apps/postprocesscontroltest)
     add_subdirectory(apps/capturetest)
     add_subdirectory(apps/renderresourcetest)
+    add_subdirectory(apps/videoscanregressiontest)
 endif()
 
 ################################################################################

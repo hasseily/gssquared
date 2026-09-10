@@ -97,6 +97,7 @@ jobs:
           export GS2_TEST_ARTIFACT_DIR="$PWD/build/smoke"
           if [ "$RUNNER_OS" = Linux ]; then
             xvfb-run -a build/postprocesstest --require-gpu
+            SDL_GPU_DRIVER=unavailable GS2_TEST_ARTIFACT_DIR="$PWD/build/smoke/opengl" xvfb-run -a build/postprocesstest --require-opengl
             xvfb-run -a python scripts/test_appletini_guest.py --executable build/GSSquared
           else
             build/postprocesstest --require-gpu

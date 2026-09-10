@@ -41,6 +41,11 @@ pair-merge control, preventing a second average. Host UI is never retained in
 phosphor history. Absolute IIgs mouse coordinates use the same image zoom,
 translation, curvature and barrel distortion as rendering.
 
+Missing or unreadable bezel/glass assets use a transparent fallback and report
+the error without retrying file loads each frame. Explicitly reloading the
+preset retries the same paths after files are repaired; renderer recreation
+also reloads assets.
+
 ## Dependency and shader builds
 
 The application uses unmodified SDL 3.4.16 from the pinned release archive outside

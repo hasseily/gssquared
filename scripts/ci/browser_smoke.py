@@ -124,6 +124,74 @@ def main() -> None:
                 page.keyboard.press("F7")
                 page.keyboard.press("Shift+F7")
                 page.wait_for_timeout(500)
+                canvas_box = page.locator("#canvas").bounding_box()
+                assert canvas_box is not None
+                panel_width = min(600, int(canvas_box["width"]) - 24)
+                panel_height = min(760, int(canvas_box["height"]) - 24)
+                panel_x = canvas_box["x"] + canvas_box["width"] - panel_width - 12
+                panel_y = canvas_box["y"] + (canvas_box["height"] - panel_height) / 2
+
+                def click_action(index: int) -> None:
+                    button_width = (panel_width - 36) / 3 - 6
+                    page.mouse.click(panel_x + 16 + (index % 3) * (button_width + 6) + button_width / 2,
+                                     panel_y + 100 + (index // 3) * 34)
+
+                def current_settings() -> dict:
+                    return page.evaluate("JSON.parse(FS.readFile('/postprocess/current.json', {encoding:'utf8'}))")
+
+                # Exercise the real canvas controls, including the SDL-to-web
+                # file picker and browser download adapter.
+                click_action(1)  # Next preset
+                page.wait_for_timeout(600)
+                assert current_settings()["preset_name"] != "CI full effects", "Next preset button did not load a preset"
+                # The first row is the effects level. Clicking its right side
+                # places the caret after the existing value.
+                def edit_level(value: str) -> None:
+                    page.mouse.click(panel_x + panel_width - 52, panel_y + 225)
+                    for _ in range(4):
+                        page.keyboard.press("Backspace")
+                    page.keyboard.type(value)
+                    page.keyboard.press("Enter")
+                    page.wait_for_timeout(600)
+
+                edit_level("1")
+                assert current_settings()["p_i_postprocessingLevel"] == 1, "Numeric effects editor did not apply the typed value"
+                edit_level("2")
+                assert current_settings()["p_i_postprocessingLevel"] == 2
+                saved_count = page.evaluate("FS.readdir('/postprocess/presets').filter(name => name.endsWith('.json')).length")
+                click_action(2)  # Save new
+                page.wait_for_timeout(600)
+                assert page.evaluate("FS.readdir('/postprocess/presets').filter(name => name.endsWith('.json')).length") == saved_count + 1
+                page.locator("#canvas").screenshot(path=str(args.output / "controls-before-scroll.png"))
+                page.mouse.move(panel_x + 200, panel_y + 350)
+                page.mouse.wheel(0, 400)
+                page.wait_for_timeout(300)
+                page.locator("#canvas").screenshot(path=str(args.output / "controls-scrolled.png"))
+                before_scroll = Image.open(args.output / "controls-before-scroll.png").convert("RGB")
+                after_scroll = Image.open(args.output / "controls-scrolled.png").convert("RGB")
+                controls_area = (int(panel_x - canvas_box["x"] + 20), int(panel_y - canvas_box["y"] + 195),
+                                 int(panel_x - canvas_box["x"] + panel_width - 40),
+                                 int(panel_y - canvas_box["y"] + panel_height - 90))
+                assert ImageChops.difference(before_scroll.crop(controls_area), after_scroll.crop(controls_area)).getbbox(), "Control list did not scroll"
+                with page.expect_file_chooser():
+                    click_action(3)  # Import, then cancel
+                page.locator("input[type=file]").dispatch_event("cancel")
+                page.wait_for_timeout(300)
+                with page.expect_file_chooser() as picker:
+                    click_action(3)
+                imported = {"preset_name": "CI imported preset", "p_i_postprocessingLevel": 2,
+                            "p_f_brightness": 1.2, "p_i_maskType": 2}
+                picker.value.set_files({"name": "browser-preset.json", "mimeType": "application/json",
+                                        "buffer": json.dumps(imported).encode()})
+                page.wait_for_timeout(600)
+                assert current_settings()["preset_name"] == imported["preset_name"], "Browser preset import did not apply"
+                with page.expect_download() as download:
+                    click_action(4)  # Export
+                export_path = args.output / "exported-preset.json"
+                download.value.save_as(export_path)
+                assert json.loads(export_path.read_text())["preset_name"] == imported["preset_name"], "Browser export differs from the active preset"
+                page.wait_for_function("!Module.gs2PostprocessSyncBusy && !Module.gs2PostprocessSyncDirty")
+                page.wait_for_timeout(600)
                 page.locator("#canvas").screenshot(path=str(args.output / "settings-open.png"))
                 previous_recoveries = page.evaluate("Module.ccall('gs2_webgl_recovery_count', 'number', [], [])")
                 page.evaluate("""() => {
@@ -146,7 +214,11 @@ def main() -> None:
                 panel = Image.open(args.output / "settings-open.png").convert("RGB")
                 # The opaque panel interior is static even while the guest's
                 # display and phosphor history continue to animate behind it.
-                panel_area = (40, 40, panel.width - 40, min(580, panel.height - 100))
+                left = int(panel_x - canvas_box["x"])
+                top = int(panel_y - canvas_box["y"])
+                panel_area = (left + 24, top + 24, left + panel_width - 24,
+                              top + min(580, panel_height - 100))
+                assert min(ImageStat.Stat(panel.crop(panel_area)).mean) > 160, "Postprocessing settings panel did not open"
                 panel_delta = ImageStat.Stat(ImageChops.difference(panel.crop(panel_area), restored.crop(panel_area)))
                 assert max(panel_delta.mean) < 1, "Settings panel textures were not restored intact"
                 assert not page_errors, page_errors

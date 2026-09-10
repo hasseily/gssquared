@@ -37,7 +37,7 @@ private:
     int width_ = 0, height_ = 0, controls_y_ = 0;
     bool dirty_ = false;
     uint64_t changed_at_ = 0;
-    void changed();
+    void changed(bool reload_assets = false);
     void persist();
     void select_preset(int direction);
     void select_bezel(int direction);

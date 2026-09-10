@@ -24,8 +24,9 @@ static std::vector<unsigned char> bytes(SDL_Surface* s) {
     SDL_DestroySurface(rgba);return b;
 }
 int main(int argc,char** argv) {
-    bool strict=false,benchmark=false;
-    for(int i=1;i<argc;++i){strict|=std::string(argv[i])=="--require-gpu";benchmark|=std::string(argv[i])=="--benchmark";}
+    bool strict=false,benchmark=false,require_gl=false;
+    for(int i=1;i<argc;++i){strict|=std::string(argv[i])=="--require-gpu";benchmark|=std::string(argv[i])=="--benchmark";require_gl|=std::string(argv[i])=="--require-opengl";}
+    strict|=require_gl;
     if(!SDL_Init(SDL_INIT_VIDEO)){std::fprintf(stderr,"SKIP: %s\n",SDL_GetError());return strict?1:77;}
     std::filesystem::path executable=std::filesystem::absolute(argv[0]).parent_path();
     gs2_app_values.base_path=(executable/"resources").string();
@@ -36,6 +37,7 @@ int main(int argc,char** argv) {
     {
         pp::PostProcessor processor(window);std::puts(processor.status().c_str());
         if(!processor.available())return strict?1:77;
+        if(require_gl)require(processor.device()==nullptr,"OpenGL fallback must be selected");
         auto* r=processor.renderer();
         pp::FrameView frame;frame.source_width=560;frame.source_height=192;frame.scanlines=192;frame.fields_already_composed=false;
         auto draw=[&](bool lit=true){
@@ -107,6 +109,31 @@ int main(int argc,char** argv) {
         auto final=bytes(processor.capture_processed());require(final==plain,"capture compositor preserves plain decoded colors");
         require(processor.recreate(),"graphics device recreation");r=processor.renderer();
         processor.settings()=pp::Settings{};auto recreated=draw();require(recreated==plain,"renderer recreation restores valid clear history and frame");
+        // Missing imported assets must not be decoded again on every frame.
+        // Explicitly reloading the same preset retries repaired files.
+        auto temp=std::filesystem::temp_directory_path()/("gs2-postprocess-assets-"+std::to_string(SDL_GetPerformanceCounter()));
+        require(std::filesystem::create_directory(temp),"temporary asset directory");
+        auto bezel_path=(temp/"bezel.bmp").string(),glass_path=(temp/"glass.bmp").string();
+        auto save_color=[&](const std::string& path,Uint8 red,Uint8 green,Uint8 blue){
+            auto* surface=SDL_CreateSurface(8,8,SDL_PIXELFORMAT_RGBA32);require(surface,"asset fixture surface");
+            SDL_FillSurfaceRect(surface,nullptr,SDL_MapSurfaceRGBA(surface,red,green,blue,255));
+            require(SDL_SaveBMP(surface,path.c_str()),"asset fixture save");SDL_DestroySurface(surface);
+        };
+        processor.set_assets(bezel_path,"");draw();
+        require(bytes(processor.capture_processed())==plain,"missing bezel uses transparent fallback");
+        save_color(bezel_path,0,255,255);draw();
+        require(bytes(processor.capture_processed())==plain,"missing bezel is not retried during ordinary frames");
+        processor.set_assets(bezel_path,"");draw();auto bezel_frame=bytes(processor.capture_processed());
+        require(bezel_frame!=plain&&bezel_frame[0]==0&&bezel_frame[1]==255&&bezel_frame[2]==255,"explicit reload recovers repaired bezel");
+        require(processor.status().find("could not be loaded")==std::string::npos,"repaired bezel clears its error status");
+        processor.set_assets(bezel_path,glass_path);draw();
+        require(bytes(processor.capture_processed())==bezel_frame,"missing glass retains bezel");
+        save_color(glass_path,255,0,255);draw();
+        require(bytes(processor.capture_processed())==bezel_frame,"missing glass is not retried during ordinary frames");
+        processor.set_assets(bezel_path,glass_path);draw();auto glass_frame=bytes(processor.capture_processed());
+        require(glass_frame[0]==255&&glass_frame[1]==0&&glass_frame[2]==255,"explicit reload recovers repaired glass");
+        require(processor.status().find("could not be loaded")==std::string::npos,"repaired glass clears its error status");
+        processor.set_assets("","");draw();std::filesystem::remove_all(temp);
         if(benchmark){
             processor.set_vsync(0);processor.settings().p_i_postprocessingLevel=2;
             processor.settings().p_f_phosphorBlur=.5f;processor.settings().p_f_ghostingPercent=50;
@@ -121,7 +148,7 @@ int main(int argc,char** argv) {
             if(processor.device())SDL_WaitForGPUIdle(processor.device());
             std::printf("1080p CRT + mipmapped blur + history: %.3f ms/frame (180 frames, includes submission/presentation)\n",double(SDL_GetTicksNS()-start)/180.0/1000000.0);
         }
-        std::puts("PASS: orientation, colors, all SuperDuperDisplay presets, composition, mipmaps, history, reset, mouse geometry and recreation");
+        std::puts("PASS: orientation, colors, all SuperDuperDisplay presets, composition, mipmaps, history, reset, mouse geometry, recreation and asset recovery");
     }
     SDL_DestroyWindow(window);SDL_Quit();return 0;
 }

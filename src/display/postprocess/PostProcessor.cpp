@@ -54,6 +54,8 @@ struct PostProcessor::Impl {
     FrameView frame;
     std::string message="Postprocessing is unavailable";
     std::string requested_bezel,requested_glass,loaded_bezel,loaded_glass;
+    std::string attempted_bezel,attempted_glass,bezel_error,glass_error,backend_message;
+    bool assets_dirty=true;
     bool explicit_assets=false;
 #if defined(__EMSCRIPTEN__) || defined(__linux__)
     unsigned gl_crt=0,gl_composite=0,gl_vao=0,gl_ubo=0,gl_fbo=0;
@@ -147,7 +149,7 @@ struct PostProcessor::Impl {
         nearest_sampler=SDL_CreateGPUSampler(gpu,&sampler);
         if(!linear_sampler||!nearest_sampler)return false;
         backend=Backend::Native;
-        message="Postprocessing: SDL GPU / "+std::string(SDL_GetGPUDeviceDriver(gpu));
+        message=backend_message="Postprocessing: SDL GPU / "+std::string(SDL_GetGPUDeviceDriver(gpu));
         return true;
     }
     bool make_texture(Texture& t,int w,int h,bool mipmaps) {
@@ -225,14 +227,19 @@ struct PostProcessor::Impl {
     void assets() {
         std::string bp=explicit_assets?requested_bezel:asset_path(settings.bezelName);
         std::string gp=explicit_assets?requested_glass:asset_path(settings.glassName);
-        if(!bezel.sdl||loaded_bezel!=bp){
-            if(!upload_image(bezel,bp)){message="Postprocessing bezel could not be loaded: "+bp;upload_image(bezel,{});loaded_bezel.clear();}
-            else loaded_bezel=bp;
+        bool attempted=false;
+        if(assets_dirty||!bezel.sdl||attempted_bezel!=bp){
+            attempted=true;attempted_bezel=bp;
+            if(!upload_image(bezel,bp)){bezel_error="Postprocessing bezel could not be loaded: "+bp;upload_image(bezel,{});loaded_bezel.clear();}
+            else {loaded_bezel=bp;bezel_error.clear();}
         }
-        if(!glass.sdl||loaded_glass!=gp){
-            if(!upload_image(glass,gp)){message="Postprocessing glass could not be loaded: "+gp;upload_image(glass,{});loaded_glass.clear();}
-            else loaded_glass=gp;
+        if(assets_dirty||!glass.sdl||attempted_glass!=gp){
+            attempted=true;attempted_glass=gp;
+            if(!upload_image(glass,gp)){glass_error="Postprocessing glass could not be loaded: "+gp;upload_image(glass,{});loaded_glass.clear();}
+            else {loaded_glass=gp;glass_error.clear();}
         }
+        assets_dirty=false;
+        if(attempted)message=!bezel_error.empty()?bezel_error:!glass_error.empty()?glass_error:backend_message;
     }
     SDL_FRect output_rect() const {
         const auto& s=settings;
@@ -349,9 +356,9 @@ struct PostProcessor::Impl {
         glBindBuffer(GL_UNIFORM_BUFFER,gl_ubo);glBufferData(GL_UNIFORM_BUFFER,sizeof(Uniforms),nullptr,GL_DYNAMIC_DRAW);
         backend=Backend::GL;
 #ifdef __EMSCRIPTEN__
-        message="Postprocessing: WebGL2";
+        message=backend_message="Postprocessing: WebGL2";
 #else
-        message="Postprocessing: OpenGL fallback";
+        message=backend_message="Postprocessing: OpenGL fallback";
 #endif
         SDL_FlushRenderer(renderer);return true;
     }
@@ -398,7 +405,12 @@ Settings& PostProcessor::settings(){return impl_->settings;}
 const Settings& PostProcessor::settings() const{return impl_->settings;}
 void PostProcessor::settings_changed(){impl_->history_valid=false;impl_->merge_count=0;}
 void PostProcessor::reset_history(){impl_->history_valid=false;impl_->merge_count=0;}
-void PostProcessor::set_assets(const std::string& b,const std::string& g){impl_->explicit_assets=true;impl_->requested_bezel=b;impl_->requested_glass=g;}
+void PostProcessor::set_assets(const std::string& b,const std::string& g){
+    impl_->explicit_assets=true;impl_->requested_bezel=b;impl_->requested_glass=g;
+    // An explicit reload can retry the same file after it has been repaired.
+    // Failed loads otherwise retain their transparent placeholder across frames.
+    impl_->assets_dirty=true;
+}
 bool PostProcessor::recreate(){
     auto settings=impl_->settings;
     auto bezel=impl_->requested_bezel,glass=impl_->requested_glass;
