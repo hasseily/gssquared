@@ -39,15 +39,13 @@ In the OSD, there are buttons to change the display engine - NTSC, RGB, and Mono
 
 These are matters of personal preference, so you get to pick the one you like best.
 
-## CRT Effect / Shader
+## Postprocessing
 
-GS2 has a "CRT Shader" option under the Display menu, that turns on a "CRT Emulation" effect.
+Use **Display → Postprocessing...** or **Shift+F7** to edit CRT scanlines, masks, phosphor persistence, color, curvature, bezel reflections and glass. Choose a bundled preset, save your own, or import/export compatible SuperDuperDisplay JSON presets. The panel supports sliders and precise typed values.
 
-The effect modifies the normal display output, applying a "shadow mask" and some other enhancements to attempt to emulate the way pixels appear on an 80s-era CRT display.
+**F7** or **Display → CRT Shader** toggles the effects; `-g` enables them at boot. Current settings are restored on startup. Browser presets use local browser storage; export a preset to retain a separate copy.
 
-Available on macOS (Metal), Windows (D3D12), and Linux (Vulkan / SPIR-V). Works best on Retina / high-DPI displays but works pretty well on other monitors such as 27" e.g. 1440p (2560 x 1440).
-
-The shader mode can be activated with Display > CRT Shader, or by pressing F7. The `-g` command-line flag enables it at boot.
+The same effects run on macOS (Metal), Windows (D3D12), Linux (Vulkan or OpenGL), and the browser (WebGL2). Host controls remain outside the effects. Screenshots include the processed guest picture, bezel and glass.
 
 ## Second Sight Text
 

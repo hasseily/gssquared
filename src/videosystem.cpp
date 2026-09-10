@@ -132,7 +132,6 @@ video_system_t::video_system_t(computer_t *computer) {
             return true;
         }
         if (key == SDLK_F7) {
-            getMenuInterface()->toggleCrtShader();
             return true;
         }
         if (key == SDLK_PRINTSCREEN) {
@@ -148,6 +147,13 @@ video_system_t::video_system_t(computer_t *computer) {
         int key = event.key.key;
         switch (key) {
             case SDLK_F7:
+                // Capture modifiers on keydown: releasing Shift first must not
+                // turn the settings shortcut into an effects toggle.
+                if (!event.key.repeat) {
+                    if (event.key.mod & SDL_KMOD_SHIFT) getMenuInterface()->openEffectsSettings();
+                    else getMenuInterface()->toggleCrtShader();
+                }
+                return true;
             case SDLK_F3:
             case SDLK_F1:
             case SDLK_F5:

@@ -30,6 +30,8 @@
 #include "Style.hpp"
 #include "MainAtlas.hpp"
 #include "OSD.hpp"
+#include "EffectsPanel.hpp"
+#include "platform-specific/menu.h"
 #include "display/display.hpp"
 #include "util/StorageDevice.hpp"
 #include "util/mount.hpp"
@@ -717,8 +719,9 @@ void OSD::update() {
     if (!mstack.stack.empty()) {
         mstack.stack.top()->update();
         if (mstack.stack.top()->is_completed()) {
-            //delete modal_stack.stack.top();
+            auto* finished = mstack.stack.top();
             mstack.stack.pop();
+            if (finished == effects_panel_.get()) effects_panel_.reset();
         }
     }
 
@@ -944,6 +947,14 @@ bool OSD::is_mouse_captured() {
 }
 
 bool OSD::event(const SDL_Event &event) {
+    if (event.type == gs2_app_values.menu_event_type && event.user.code == MENU_DISPLAY_EFFECTS) {
+        if (mstack.stack.empty()) {
+            effects_panel_ = std::make_unique<EffectsPanel_t>(&ui_ctx, computer->video_system, mstack);
+            mstack.stack.push(effects_panel_.get());
+            computer->video_system->osd_control_panel_open = true;
+        }
+        return true;
+    }
     if (event.type == SDL_EVENT_QUIT) {
         if (gs2_app_values.no_quit_confirm) {
             // Tests / automation: exit without confirmation or dirty-disk prompts.

@@ -15,7 +15,8 @@ NOTE: Some platforms "eat" keystrokes intended for the Apple II window. E.g. Con
 | F5 | All | Toggle between new display rendering (NTSC accurate) and old display rendering |
 | Ctrl + F5 | All | Toggle between linear interpolation display rendering (slight blurring) and nearest neighbor display rendering (sharper) |
 | F6 | All | Toggle between Joystick, Joyport, Mouse-emulated Joystick modes |
-| F7 | All | Toggle CRT Shader (when the GPU shader is available) |
+| F7 | All | Toggle Postprocessing |
+| Shift+F7 | All | Open Postprocessing and presets |
 | F9 | All | Increase speed - 1MHz, 2.8MHz, 7.1MHz, 14.3MHz, and Ludicrous Speed |
 | Shift - F9 | All | Decrease speed |
 | F10 | All | Open/close the debugger window |

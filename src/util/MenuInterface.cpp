@@ -10,6 +10,7 @@
 #include "util/SystemSettings.hpp"
 #include "devices/game/gamecontroller.hpp"
 #include "Module_ID.hpp"
+#include "display/postprocess/PresetStore.hpp"
 
 static void pushMenuEvent(Sint32 code) {
 	SDL_Event event = {};
@@ -68,8 +69,15 @@ void MenuInterface::toggleRightMouseAccel() {
 }
 
 void MenuInterface::toggleCrtShader() {
-	if (computer_ && computer_->video_system) computer_->video_system->toggle_crt_shader();
+    if (computer_ && computer_->video_system) {
+        computer_->video_system->toggle_crt_shader();
+        std::string error;
+        if (!gs2::postprocess::save_current_settings(computer_->video_system->postprocess_settings(), error))
+            SDL_Log("Cannot save effects settings: %s", error.c_str());
+    }
 }
+
+void MenuInterface::openEffectsSettings() { pushMenuEvent(MENU_DISPLAY_EFFECTS); }
 
 void MenuInterface::toggleHudStats() {
 	SystemSettings::instance().toggle_hud_stats();

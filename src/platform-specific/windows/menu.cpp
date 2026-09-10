@@ -362,6 +362,7 @@ static void dispatchCommand(UINT id)
     case MENU_HUD_DRIVES:         mi->toggleHudDrives();   return;
     case MENU_DISPLAY_SS_TEXT:    mi->toggleSsTextMode();  return;
     case MENU_DISPLAY_CRT_SHADER: mi->toggleCrtShader();   return;
+    case MENU_DISPLAY_EFFECTS:    mi->openEffectsSettings(); return;
 
     // Edit / File
     case MENU_EDIT_COPY_SCREEN:      mi->editCopyScreen();      return;
@@ -557,6 +558,7 @@ static void setupMenus()
     AppendMenuW(g_displayPopup, MF_STRING, MENU_DISPLAY_FULLSCREEN, L"Full Screen");
     AppendMenuW(g_displayPopup, MF_STRING, MENU_DISPLAY_SS_TEXT, L"Second Sight Text");
     AppendMenuW(g_displayPopup, MF_STRING, MENU_DISPLAY_CRT_SHADER, L"CRT Shader");
+    AppendMenuW(g_displayPopup, MF_STRING, MENU_DISPLAY_EFFECTS, L"Postprocessing...\tShift+F7");
     AppendMenuW(g_menuBar, MF_STRING | MF_POPUP,
                 reinterpret_cast<UINT_PTR>(g_displayPopup), L"Display");
 

@@ -540,7 +540,8 @@ add_library(gs2_ui src/ui/AssetAtlas.cpp src/ui/Container.cpp src/ui/DiskII_Butt
     src/ui/DirtyDiskSave.cpp src/ui/QuitModal.cpp src/ui/ScrollBar.cpp src/ui/WrapContainer.cpp
     src/ui/StorageButtonFactory.cpp src/ui/SlotsPanel.cpp src/ui/SystemBadge.cpp src/ui/ConfigSelectors.cpp
     src/ui/EditSystem.cpp
-    src/display/postprocess/PostProcessPreset.cpp
+    src/ui/EffectsPanel.cpp src/ui/NumericSlider.cpp
+    src/display/postprocess/PostProcessPreset.cpp src/display/postprocess/PresetStore.cpp
     src/ui/SerialPortButton.cpp src/ui/SerialPortsOSD.cpp
 )
 
@@ -806,6 +807,7 @@ if(NOT EMSCRIPTEN)
     add_subdirectory(apps/renderresourcetest)
     add_subdirectory(apps/postprocesstest)
     add_subdirectory(apps/postprocesspresettest)
+    add_subdirectory(apps/postprocesscontroltest)
     add_subdirectory(apps/videoscanregressiontest)
     add_subdirectory(apps/capturetest)
     add_subdirectory(apps/appletinismartporttest)
@@ -1397,6 +1399,7 @@ if(EMSCRIPTEN)
         -sFORCE_FILESYSTEM=1
         -sMIN_WEBGL_VERSION=2
         -sMAX_WEBGL_VERSION=2
+        -lidbfs.js
         --preload-file ${GS2_WEB_PRELOAD}
         --shell-file ${CMAKE_SOURCE_DIR}/assets/web/shell.html
     )
