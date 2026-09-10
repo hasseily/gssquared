@@ -8,6 +8,7 @@
  */
 
 #include "ScreenshotWriter.hpp"
+#include "CapturePixels.hpp"
 
 #include <cstdio>
 #include <cstring>
@@ -23,8 +24,6 @@ int SDLCALL ScreenshotWriter::thread_entry(void *data) {
 }
 
 ScreenshotWriter::ScreenshotWriter() {
-    const size_t buf_size = static_cast<size_t>(MAX_SCREENSHOT_WIDTH) * MAX_SCREENSHOT_HEIGHT * 4;
-    buffer_ = new uint8_t[buf_size];
     sem_ = SDL_CreateSemaphore(0);
     thread_ = SDL_CreateThread(thread_entry, "gs2-screenshot", this);
     if (!thread_) {
@@ -46,12 +45,10 @@ ScreenshotWriter::~ScreenshotWriter() {
         SDL_DestroySemaphore(sem_);
         sem_ = nullptr;
     }
-    delete[] buffer_;
-    buffer_ = nullptr;
 }
 
-bool ScreenshotWriter::try_submit(SDL_Surface *surface, const std::string &path) {
-    if (!surface || !buffer_ || !sem_ || !thread_) {
+bool ScreenshotWriter::try_submit(SDL_Surface *surface, const std::string &path, bool double_vertical) {
+    if (!surface || !sem_ || !thread_) {
         return false;
     }
 
@@ -60,34 +57,11 @@ bool ScreenshotWriter::try_submit(SDL_Surface *surface, const std::string &path)
         return false;
     }
 
-    SDL_Surface *converted = SDL_ConvertSurface(surface, PIXEL_FORMAT);
-    if (!converted) {
+    if (!capture_rgba(surface, double_vertical, buffer_, width_, height_)) {
         pending_.store(false, std::memory_order_release);
         return false;
     }
 
-    const int w = converted->w;
-    const int h = converted->h;
-    if (w <= 0 || h <= 0 || w > MAX_SCREENSHOT_WIDTH || h > MAX_SCREENSHOT_SRC_HEIGHT) {
-        SDL_DestroySurface(converted);
-        pending_.store(false, std::memory_order_release);
-        return false;
-    }
-
-    const int bpp = 4;
-    const int src_row_bytes = w * bpp;
-    uint8_t *dst = buffer_;
-    for (int y = 0; y < h; y++) {
-        const uint8_t *src = static_cast<const uint8_t *>(converted->pixels) + y * converted->pitch;
-        std::memcpy(dst, src, static_cast<size_t>(src_row_bytes));
-        dst += src_row_bytes;
-        std::memcpy(dst, src, static_cast<size_t>(src_row_bytes));
-        dst += src_row_bytes;
-    }
-    SDL_DestroySurface(converted);
-
-    width_ = w;
-    height_ = h * 2;
     path_ = path;
     SDL_SignalSemaphore(sem_);
     return true;
@@ -110,12 +84,11 @@ void ScreenshotWriter::poll(EventQueue *event_queue) {
 void ScreenshotWriter::worker_loop() {
     while (true) {
         SDL_WaitSemaphore(sem_);
-        if (quit_.load(std::memory_order_acquire)) {
-            break;
-        }
+        if (quit_.load(std::memory_order_acquire) &&
+            !pending_.load(std::memory_order_acquire)) break;
 
         SDL_Surface *surf = SDL_CreateSurfaceFrom(
-            width_, height_, PIXEL_FORMAT, buffer_, width_ * 4);
+            width_, height_, SDL_PIXELFORMAT_RGBA32, buffer_.data(), width_ * 4);
         bool ok = false;
         if (surf) {
             ok = IMG_SavePNG(surf, path_.c_str());
@@ -143,5 +116,6 @@ void ScreenshotWriter::worker_loop() {
         // Worker → main: SPSC ring only. Never touch EventQueue here.
         status_q_.send(msg);
         pending_.store(false, std::memory_order_release);
+        if (quit_.load(std::memory_order_acquire)) break;
     }
 }
