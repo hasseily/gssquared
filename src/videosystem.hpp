@@ -66,6 +66,8 @@ struct video_system_t {
     uint64_t guest_overlay_generation = UINT64_MAX;
     int guest_overlay_width = 0, guest_overlay_height = 0;
     SDL_Texture *screencap_texture = nullptr;
+    unsigned logical_scanlines = 0;
+    bool fields_already_composed = false;
     
     display_fullscreen_mode_t display_fullscreen_mode = DISPLAY_WINDOWED_MODE;
     display_color_engine_t display_color_engine = DM_ENGINE_NTSC;
@@ -158,6 +160,8 @@ public:
     void begin_host_ui();
     void set_guest_overlay_provider(std::function<GuestOverlayFrame()> provider) { guest_overlay_provider = std::move(provider); }
 
+    void set_logical_scanlines(unsigned lines) { logical_scanlines = lines; }
+    void set_fields_already_composed(bool composed) { fields_already_composed = composed; }
     void push_mouse_capture(bool capture);
     void pop_mouse_capture();
     RGBA_t get_mono_color() { return mono_color_table[display_mono_color]; };

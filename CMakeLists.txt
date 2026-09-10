@@ -537,7 +537,8 @@ add_library(gs2_ui src/ui/AssetAtlas.cpp src/ui/Container.cpp src/ui/DiskII_Butt
 
 add_library(gs2_displaypp src/devices/displaypp/frame/frame_bit.cpp src/devices/displaypp/frame/frame_byte.cpp
     src/devices/displaypp/CharRom.cpp src/devices/displaypp/AppleIIgsColors.cpp
-    src/devices/displaypp/generate/AppleII.cpp)
+    src/devices/displaypp/generate/AppleII.cpp
+    src/devices/displaypp/generate/AppletiniVideo.cpp)
 
 add_library(gs2_ntsc
     src/display/ntsc.cpp
@@ -795,6 +796,9 @@ if(NOT EMSCRIPTEN)
     add_subdirectory(apps/postprocesstest)
     add_subdirectory(apps/videoscanregressiontest)
     add_subdirectory(apps/capturetest)
+    add_subdirectory(apps/appletinismartporttest)
+    add_subdirectory(apps/appletinispeedtest)
+    add_subdirectory(apps/appletinivideotest)
 endif()
 
 ################################################################################

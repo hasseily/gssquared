@@ -46,6 +46,8 @@
 #include "devices/displaypp/VideoScannerIIePAL.hpp"
 #include "devices/displaypp/VideoScannerII.hpp"
 #include "devices/displaypp/AppleIIgsColors.hpp"
+#include "devices/displaypp/generate/AppleII.hpp"
+#include "devices/displaypp/generate/AppletiniVideo.hpp"
 
 #include "util/DebugHandlerIDs.hpp"
 
@@ -71,8 +73,165 @@ constexpr SDL_FRect content_rec_vsg2[4][2] = {
     { { 168.0-42, 35.0-19, 560+42+42, 192.0+19+29 }, { 192.0-48.0, 35.0-19.0, 640.0+48+48, 200+19+21.0 } },
 };
 
+void set_new_video(display_state_t *ds, uint8_t value);
+uint8_t display_read_C029(void *context, uint32_t address);
+void display_write_C029(void *context, uint32_t address, uint8_t value);
+void display_write_C021(void *context, uint32_t address, uint8_t value);
+uint8_t display_read_C022(void *context, uint32_t address);
+void display_write_C022(void *context, uint32_t address, uint8_t value);
+uint8_t display_read_C034(void *context, uint32_t address);
+void display_write_C034(void *context, uint32_t address, uint8_t value);
+
+static bool appletini_shr_enabled(const display_state_t *ds) {
+    return ds->appletini_video_enabled && (ds->new_video & 0xC0) == 0xC0;
+}
+
+static bool display_shr_enabled(const display_state_t *ds) {
+    return ds->appletini_video_enabled ? appletini_shr_enabled(ds)
+                                       : (ds->new_video & 0x80) != 0;
+}
+
+static void apply_appletini_mono_state(display_state_t *ds) {
+    const bool mono560 = ds->appletini_video_enabled && ds->appletini_video7.mono560();
+    const bool force_dhgr_mono = mono560 || (ds->new_video & 0x20) != 0;
+    if (ds->vsgc != nullptr) ds->vsgc->set_dhgr_mono_mode(force_dhgr_mono);
+    if (ds->vsgr != nullptr) ds->vsgr->set_dhgr_mono_mode(force_dhgr_mono);
+}
+
+static video_render_mode_t appletini_legacy_render_mode(const display_state_t *ds,
+                                                         bool dhgr) {
+    if (dhgr && ds->appletini_video7.mono560()) {
+        return video_render_mode_t::MONO_WHITE;
+    }
+    switch (ds->video_system->display_color_engine) {
+        case DM_ENGINE_RGB: return video_render_mode_t::RGB;
+        case DM_ENGINE_MONO: return video_render_mode_t::MONO;
+        case DM_ENGINE_NTSC:
+        default: return video_render_mode_t::NTSC;
+    }
+}
+
+static void appletini_generate_legacy_fields(display_state_t *ds,
+                                              video_decode_mode_t mode,
+                                              video_render_mode_t render,
+                                              const uint8_t *main_a,
+                                              const uint8_t *aux_a,
+                                              const uint8_t *main_b,
+                                              const uint8_t *aux_b,
+                                              uint16_t first_row = 0) {
+    ds->appletini_page_renderer->set_normal_alt(ds->f_altcharset);
+    ds->appletini_page_renderer->set_flash_state(ds->flash_state);
+    ds->appletini_page_renderer->set_text_fg(ds->text_color >> 4);
+    ds->appletini_page_renderer->set_text_bg(ds->text_color & 0x0F);
+    ds->appletini_page_renderer->set_dhgr_video7_mix(
+        mode == video_decode_mode_t::DHGR && ds->appletini_video7.mixed140());
+
+    ds->appletini_field_a->open();
+    ds->appletini_page_renderer->generate(
+        mode, render, main_a, aux_a, ds->appletini_field_a, nullptr);
+    std::copy(ds->appletini_field_a->data() + first_row * 567,
+        ds->appletini_field_a->data() + 192 * 567,
+        ds->appletini_legacy_page_a.begin() + first_row * 567);
+    ds->appletini_field_a->close();
+
+    ds->appletini_field_b->open();
+    ds->appletini_page_renderer->generate(
+        mode, render, main_b, aux_b, ds->appletini_field_b, nullptr);
+    std::copy(ds->appletini_field_b->data() + first_row * 567,
+        ds->appletini_field_b->data() + 192 * 567,
+        ds->appletini_legacy_page_b.begin() + first_row * 567);
+    ds->appletini_field_b->close();
+}
+
+static bool update_display_appletini_legacy(display_state_t *ds,
+                                             ScanBuffer *scanbuf) {
+    if (!ds->appletini_video_enabled) {
+        return false;
+    }
+
+    uint8_t *ram = ds->mmu->get_memory_base();
+    if (appletini_legacy_load_hold_requested(ram)) {
+        /* A2Li $FF means the guest is replacing the two fields. Repaint the
+           last complete host texture with its original source rectangle;
+           decoding current RAM here would expose a partial load, while
+           falling through would alternate 384- and 192-row geometry. */
+        scanbuf->clear();
+        if (ds->video_system->last_texture != nullptr) {
+            SDL_FRect source = ds->video_system->last_srcrect;
+            if (ds->video_system->last_texture == ds->appletini_legacy_texture) {
+                ds->video_system->set_logical_scanlines(192);
+                ds->video_system->set_fields_already_composed(true);
+            } else if (ds->video_system->last_texture == ds->appletini_shr_texture) {
+                ds->video_system->set_logical_scanlines(200);
+                ds->video_system->set_fields_already_composed(ds->appletini_shr_info.page_mode != 0);
+            }
+            ds->video_system->render_frame(ds->video_system->last_texture,
+                                           &source, nullptr, true, nullptr);
+        }
+        return true;
+    }
+
+    if (ds->display_mode != GRAPHICS_MODE) return false;
+    const bool hires = ds->display_graphics_mode == HIRES_MODE;
+    const uint8_t page_mode = appletini_legacy_paged_mode(ram, true, hires);
+    if (!page_mode) return false;
+
+    const bool doubled = !ds->f_double_graphics && ds->f_80col;
+    const video_decode_mode_t mode = hires
+        ? (doubled ? video_decode_mode_t::DHGR : video_decode_mode_t::HIRES)
+        : (doubled ? video_decode_mode_t::LORES80 : video_decode_mode_t::LORES40);
+    const video_render_mode_t render = appletini_legacy_render_mode(ds, hires && doubled);
+    const uint8_t *aux = ram + 0x10000;
+    const uint16_t page_a = hires ? 0x2000 : 0x0400;
+    const uint16_t page_b = hires ? 0x4000 : 0x0800;
+    appletini_generate_legacy_fields(ds, mode, render,
+        ram + page_a, doubled ? aux + page_a : nullptr,
+        ram + page_b, doubled ? aux + page_b : nullptr);
+
+    if (ds->display_split_mode == SPLIT_SCREEN) {
+        const video_decode_mode_t text_mode = ds->f_80col
+            ? video_decode_mode_t::TEXT80 : video_decode_mode_t::TEXT40;
+        appletini_generate_legacy_fields(ds, text_mode, render,
+            ram + 0x0400, ds->f_80col ? aux + 0x0400 : nullptr,
+            ram + 0x0800, ds->f_80col ? aux + 0x0800 : nullptr, 160);
+    }
+
+    const size_t height = appletini_compose_legacy_fields(
+        ds->appletini_legacy_page_a.data(), ds->appletini_legacy_page_b.data(),
+        567, 567, ds->appletini_legacy_pixels.data(), 640, hires, page_mode);
+    if (!SDL_UpdateTexture(ds->appletini_legacy_texture, nullptr,
+            ds->appletini_legacy_pixels.data(), 640 * sizeof(RGBA_t))) return false;
+    scanbuf->clear();
+    SDL_FRect source = {0.0f, 0.0f, 567.0f, static_cast<float>(height)};
+    ds->video_system->set_logical_scanlines(192);
+    ds->video_system->set_fields_already_composed(true);
+    ds->video_system->render_frame(ds->appletini_legacy_texture, &source, nullptr, true, nullptr);
+    return true;
+}
+
+static bool update_display_appletini_shr(display_state_t *ds,
+                                          ScanBuffer *scanbuf) {
+    if (!appletini_shr_enabled(ds)) return false;
+
+    uint8_t *ram = ds->mmu->get_memory_base();
+    ds->appletini_shr_info = appletini_render_shr(
+        ram, ram + 0x10000, ds->appletini_shr_pixels.data(), 640,
+        (ds->new_video & 0x20) != 0);
+    if (!SDL_UpdateTexture(ds->appletini_shr_texture, nullptr,
+            ds->appletini_shr_pixels.data(), 640 * sizeof(RGBA_t))) return false;
+    scanbuf->clear();
+
+    SDL_FRect source = {0.0f, 0.0f, 640.0f, 400.0f};
+    ds->video_system->set_logical_scanlines(200);
+    ds->video_system->set_fields_already_composed(ds->appletini_shr_info.page_mode != 0);
+    ds->video_system->render_frame(
+        ds->appletini_shr_texture, &source, nullptr, true, nullptr);
+    return true;
+}
+
 bool update_display_apple2_cycle(display_state_t *ds) {
     video_system_t *vs = ds->video_system;
+    vs->set_logical_scanlines(192);
 
     ScanBuffer *scanbuf = ds->video_scanner->get_frame_scan();
 
@@ -96,12 +255,16 @@ bool update_display_apple2_cycle(display_state_t *ds) {
             assert(false && "Invalid display color engine");
     }
 
+    apply_appletini_mono_state(ds);
+    if (update_display_appletini_shr(ds, scanbuf)) return true;
+    if (update_display_appletini_legacy(ds, scanbuf)) return true;
+
     ds->frame_vsg->open();
     ds->vsg->generate_frame(scanbuf);
     ds->frame_vsg->close();
 
     SDL_FRect ii_frame_src;
-    ii_frame_src = content_rec_vsg2[ds->video_scanner_type][(ds->new_video & 0x80) ? 1 : 0];
+    ii_frame_src = content_rec_vsg2[ds->video_scanner_type][display_shr_enabled(ds) ? 1 : 0];
     ii_frame_src.x += (float)ds->hpos-ds->hsize;
     ii_frame_src.y += (float)ds->vpos-ds->vsize;
     ii_frame_src.w += (float)ds->hsize*2;
@@ -116,7 +279,7 @@ bool update_display_apple2_cycle(display_state_t *ds) {
     static constexpr SDL_FRect ii_content_inset = { 42.0f, 19.0f, 560.0f, 192.0f };
     static constexpr SDL_FRect shr_content_inset = { 48.0f, 19.0f, 640.0f, 200.0f };
     const SDL_FRect &content_inset =
-        (ds->new_video & 0x80) ? shr_content_inset : ii_content_inset;
+        display_shr_enabled(ds) ? shr_content_inset : ii_content_inset;
 
     ds->video_system->render_frame(ds->frame_vsg->get_texture(), &ii_frame_src, nullptr, true,
         &content_inset);
@@ -300,9 +463,68 @@ display_state_t::display_state_t() {
 }
 
 display_state_t::~display_state_t() {
+    delete appletini_page_renderer;
+    delete appletini_field_a;
+    delete appletini_field_b;
+    if (appletini_legacy_texture != nullptr) SDL_DestroyTexture(appletini_legacy_texture);
+    if (appletini_shr_texture != nullptr) SDL_DestroyTexture(appletini_shr_texture);
     delete vsg;
     delete video_scanner;
     delete char_rom;
+}
+
+void display_enable_appletini_video(computer_t *computer) {
+    if (computer == nullptr || computer->platform->id < PLATFORM_APPLE_IIE ||
+        computer->platform->id > PLATFORM_APPLE_IIE_65816) {
+        return;
+    }
+
+    auto *ds = static_cast<display_state_t *>(computer->get_module_state(MODULE_DISPLAY));
+    if (ds == nullptr || ds->appletini_video_enabled) return;
+
+    ds->appletini_page_renderer = new AppleII_View(ds->char_rom);
+    ds->appletini_field_a = new Frame560RGBA(
+        567, 192, ds->video_system->renderer, PIXEL_FORMAT);
+    ds->appletini_field_b = new Frame560RGBA(
+        567, 192, ds->video_system->renderer, PIXEL_FORMAT);
+    // Keep complete CPU pixels while an A2Li loader hold replaces guest RAM.
+    ds->appletini_legacy_pixels.resize(640 * 400);
+    ds->appletini_shr_pixels.resize(640 * 400);
+    SDL_Renderer *renderer = ds->video_system->renderer;
+    ds->appletini_legacy_texture = SDL_CreateTexture(
+        renderer, PIXEL_FORMAT, SDL_TEXTUREACCESS_STREAMING, 640, 400);
+    ds->appletini_shr_texture = SDL_CreateTexture(
+        renderer, PIXEL_FORMAT, SDL_TEXTUREACCESS_STREAMING, 640, 400);
+    if (!ds->appletini_legacy_texture || !ds->appletini_shr_texture)
+        throw std::runtime_error("Failed to create Appletini video textures");
+    for (auto* texture : {ds->appletini_legacy_texture, ds->appletini_shr_texture}) {
+        SDL_SetTextureBlendMode(texture, SDL_BLENDMODE_NONE);
+        SDL_SetTextureScaleMode(texture, SDL_SCALEMODE_NEAREST);
+    }
+    SDL_UpdateTexture(ds->appletini_legacy_texture, nullptr,
+        ds->appletini_legacy_pixels.data(), 640 * sizeof(RGBA_t));
+    SDL_UpdateTexture(ds->appletini_shr_texture, nullptr,
+        ds->appletini_shr_pixels.data(), 640 * sizeof(RGBA_t));
+
+    SDL_SetTextureBlendMode(ds->appletini_field_a->get_texture(), SDL_BLENDMODE_NONE);
+    SDL_SetTextureBlendMode(ds->appletini_field_b->get_texture(), SDL_BLENDMODE_NONE);
+    SDL_SetTextureScaleMode(ds->appletini_field_a->get_texture(), SDL_SCALEMODE_NEAREST);
+    SDL_SetTextureScaleMode(ds->appletini_field_b->get_texture(), SDL_SCALEMODE_NEAREST);
+
+    ds->appletini_legacy_page_a.resize(567 * 192);
+    ds->appletini_legacy_page_b.resize(567 * 192);
+    ds->appletini_video_enabled = true;
+    ds->appletini_video7.reset();
+    set_new_video(ds, 0);
+
+    MMU_II *mmu = ds->mmu;
+    mmu->set_C0XX_write_handler(0xC021, { display_write_C021, ds });
+    mmu->set_C0XX_read_handler(0xC022, { display_read_C022, ds });
+    mmu->set_C0XX_write_handler(0xC022, { display_write_C022, ds });
+    mmu->set_C0XX_read_handler(0xC029, { display_read_C029, ds });
+    mmu->set_C0XX_write_handler(0xC029, { display_write_C029, ds });
+    mmu->set_C0XX_read_handler(0xC034, { display_read_C034, ds });
+    mmu->set_C0XX_write_handler(0xC034, { display_write_C034, ds });
 }
 
 bool handle_display_event(display_state_t *ds, const SDL_Event &event) {
@@ -372,18 +594,14 @@ uint8_t display_read_C029(void *context, uint32_t address) {
 
 void set_new_video(display_state_t *ds, uint8_t value) {
     ds->new_video = value;
-    if (ds->new_video & 0x80) {
+    if (!ds->appletini_video_enabled && (ds->new_video & 0x80)) {
         ds->video_scanner->set_shr();
         /* // TODO:ds->a2_display->set_shr(true); */
     } else {
         ds->video_scanner->reset_shr();
         /* // TODO: ds->a2_display->reset_shr(); */
     }
-    if (ds->new_video & 0x20) {
-        ds->vsg->set_dhgr_mono_mode(true);
-    } else {
-        ds->vsg->set_dhgr_mono_mode(false);
-    }
+    apply_appletini_mono_state(ds);
 }
 
 void display_write_C029(void *context, uint32_t address, uint8_t value) {
@@ -502,6 +720,12 @@ uint8_t display_read_C05EF(void *context, uint32_t address) {
     display_state_t *ds = (display_state_t *)context;
     ds->f_double_graphics = (address & 0x1); // this is inverted sense
     ds->video_scanner->set_dblres_f(!ds->f_double_graphics);
+    if (ds->appletini_video_enabled) {
+        ds->appletini_video7.access(
+            static_cast<uint16_t>(address),
+            ds->display_split_mode == SPLIT_SCREEN, ds->f_80col);
+        apply_appletini_mono_state(ds);
+    }
     return ds->mmu->floating_bus_read();
 }
 
@@ -509,6 +733,12 @@ void display_write_C05EF(void *context, uint32_t address, uint8_t value) {
     display_state_t *ds = (display_state_t *)context;
     ds->f_double_graphics = (address & 0x1); // this is inverted sense
     ds->video_scanner->set_dblres_f(!ds->f_double_graphics);
+    if (ds->appletini_video_enabled) {
+        ds->appletini_video7.access(
+            static_cast<uint16_t>(address),
+            ds->display_split_mode == SPLIT_SCREEN, ds->f_80col);
+        apply_appletini_mono_state(ds);
+    }
 }
 
 /* VBL, Mouse, 1 sec, 1/4 sec Interrupt Handling Section - IIgs specific registers */
@@ -900,20 +1130,19 @@ void init_mb_device_display_common(computer_t *computer, SlotType_t slot, bool c
     });
 
     computer->register_reset_handler([ds](bool cold_start) {
-        if (platform_is_iigs(ds->computer->platform->id)) {
+        const bool iigs = platform_is_iigs(ds->computer->platform->id);
+        if (iigs) {
             display_write_c041(ds, 0xC041, 0x00);
-            // TODO: this is the cleanest way to do it for now, but it feels a little hacky, as if
-            // reset handler in mmu and here should each be responsible for clearing their own bits.
-            // NEWVIDEO
-            ds->mmu->write(0xC029, ds->new_video&0x1);
-            //set_new_video(ds, 0x00); // C029
-            //LANGSEL: no change
+            display_write_c023(ds, 0xC023, 0x00);
+        }
+        if (iigs || ds->appletini_video_enabled) {
+            set_new_video(ds, iigs ? (ds->new_video & 0x01) : 0x00);
             set_tbcolor(ds, 0x0F0); // C022
             set_bordercolor(ds, 0x00); // C034
-            // C023 - VGCINT to 0
-            display_write_c023(ds, 0xC023, 0x00);
-            // C021 MONOCOLOR
             display_write_C021(ds, 0xC021, 0x00);
+            ds->appletini_video7.reset();
+            appletini_legacy_reset_load_hold(ds->mmu->get_memory_base());
+            apply_appletini_mono_state(ds);
         }
         if (ds->computer->platform->id >= PLATFORM_APPLE_IIE) { // iie and GS share these..
             // TEXT/GRAPHICS: no change.

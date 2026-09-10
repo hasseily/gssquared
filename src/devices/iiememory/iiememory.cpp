@@ -43,18 +43,29 @@
  * ALT RAM:       add 0x10000 to address 
  */
 
+static uint8_t *iiememory_aux_base(iiememory_state_t *state) {
+    if (!state->appletini_ramworks_enabled || state->appletini_ramworks_bank == 0) {
+        return state->ram + 0x1'0000;
+    }
+    const std::size_t offset =
+        (static_cast<std::size_t>(state->appletini_ramworks_bank) - 1)
+        * iiememory_state_t::APPLETINI_RAMWORKS_BANK_SIZE;
+    return state->appletini_ramworks_extra_banks.data() + offset;
+}
+
+static uint8_t *iiememory_bank_base(iiememory_state_t *state, bool auxiliary) {
+    return auxiliary ? iiememory_aux_base(state) : state->ram;
+}
+
 void bsr_map_memory(iiememory_state_t *lc) {
 
     uint32_t bankd0offset = (lc->ll.FF_BANK_1 == 1) ? 0xC000 : 0xD000;
     uint32_t banke0offset = 0xE000;
-    if (lc->f_altzp) {
-        bankd0offset += 0x1'0000; // alternate bank!
-        banke0offset += 0x1'0000; // alternate bank!
-    }
 
     //uint8_t *bank = (lc->FF_BANK_1 == 1) ? lc->ram : lc->ram + 0x1000;
-    uint8_t *bankd0 = lc->ram + bankd0offset;
-    uint8_t *banke0 = lc->ram + banke0offset;
+    uint8_t *memory_base = iiememory_bank_base(lc, lc->f_altzp);
+    uint8_t *bankd0 = memory_base + bankd0offset;
+    uint8_t *banke0 = memory_base + banke0offset;
     uint8_t *rom = lc->mmu->get_rom_base();
 
     const char *bank_d = (lc->ll.FF_BANK_1 == 1) ? "LC_BANK1" : "LC_BANK2";
@@ -161,7 +172,7 @@ void iiememory_debug(iiememory_state_t *iiememory_d) {
         iiememory_d->m_zp, iiememory_d->m_text1_r, iiememory_d->m_text1_w, iiememory_d->m_hires1_r, iiememory_d->m_hires1_w, iiememory_d->m_all_r, iiememory_d->m_all_w); */
 }
 
-void iiememory_compose_map(iiememory_state_t *iiememory_d) {
+void iiememory_compose_map(iiememory_state_t *iiememory_d, bool force = false) {
     const char *TAG_MAIN = "MAIN";
     const char *TAG_ALT = "AUX";
         
@@ -195,72 +206,70 @@ void iiememory_compose_map(iiememory_state_t *iiememory_d) {
         n_hires1_w = iiememory_d->f_ramwrt;
     }
 
-    uint8_t *memory_base = iiememory_d->ram;
-
-    if (n_zp != iiememory_d->m_zp) { // this is both read and write.
+    if (force || n_zp != iiememory_d->m_zp) { // this is both read and write.
         // change $00, $01, $D0 - $FF
-        uint32_t altoffset = n_zp ? 0x1'0000 : 0x0'0000;
+        uint8_t *memory_base = iiememory_bank_base(iiememory_d, n_zp);
 
-        iiememory_d->mmu->map_page_read(0x00, memory_base + altoffset + 0x0000, n_zp ? TAG_ALT : TAG_MAIN);
-        iiememory_d->mmu->map_page_write(0x00, memory_base + altoffset + 0x0000, n_zp ? TAG_ALT : TAG_MAIN);
-        iiememory_d->mmu->map_page_read(0x01, memory_base + altoffset + 0x0100, n_zp ? TAG_ALT : TAG_MAIN);
-        iiememory_d->mmu->map_page_write(0x01, memory_base + altoffset + 0x0100, n_zp ? TAG_ALT : TAG_MAIN);
+        iiememory_d->mmu->map_page_read(0x00, memory_base + 0x0000, n_zp ? TAG_ALT : TAG_MAIN);
+        iiememory_d->mmu->map_page_write(0x00, memory_base + 0x0000, n_zp ? TAG_ALT : TAG_MAIN);
+        iiememory_d->mmu->map_page_read(0x01, memory_base + 0x0100, n_zp ? TAG_ALT : TAG_MAIN);
+        iiememory_d->mmu->map_page_write(0x01, memory_base + 0x0100, n_zp ? TAG_ALT : TAG_MAIN);
         
         // handle mapping the "language card" portion.
         bsr_map_memory(iiememory_d); // handle the 'language card' portion.
     }
-    if (n_text1_r != iiememory_d->m_text1_r) {
+    if (force || n_text1_r != iiememory_d->m_text1_r) {
         // change $04 - $07
-        uint32_t altoffset = n_text1_r ? 0x1'0000 : 0x0'0000;
+        uint8_t *memory_base = iiememory_bank_base(iiememory_d, n_text1_r);
         for (int i = 0x04; i <= 0x07; i++) {
-            iiememory_d->mmu->map_page_read(i, memory_base + altoffset + (i * GS2_PAGE_SIZE), n_text1_r ? TAG_ALT : TAG_MAIN);
+            iiememory_d->mmu->map_page_read(i, memory_base + (i * GS2_PAGE_SIZE), n_text1_r ? TAG_ALT : TAG_MAIN);
         }
     }
-    if (n_text1_w != iiememory_d->m_text1_w) {
+    if (force || n_text1_w != iiememory_d->m_text1_w) {
         // change $04 - $07
-        uint32_t altoffset = n_text1_w ? 0x1'0000 : 0x0'0000;
+        uint8_t *memory_base = iiememory_bank_base(iiememory_d, n_text1_w);
         for (int i = 0x04; i <= 0x07; i++) {
-            iiememory_d->mmu->map_page_write(i, memory_base + altoffset + (i * GS2_PAGE_SIZE), n_text1_w ? TAG_ALT : TAG_MAIN);
+            iiememory_d->mmu->map_page_write(i, memory_base + (i * GS2_PAGE_SIZE), n_text1_w ? TAG_ALT : TAG_MAIN);
         }
     }
-    if (n_hires1_r != iiememory_d->m_hires1_r) {
+    if (force || n_hires1_r != iiememory_d->m_hires1_r) {
         // change $20 - $3F
-        uint32_t altoffset = n_hires1_r ? 0x1'0000 : 0x0'0000;
+        uint8_t *memory_base = iiememory_bank_base(iiememory_d, n_hires1_r);
         for (int i = 0x20; i <= 0x3F; i++) {
-            iiememory_d->mmu->map_page_read(i, memory_base + altoffset + (i * GS2_PAGE_SIZE), n_hires1_r ? TAG_ALT : TAG_MAIN);
+            iiememory_d->mmu->map_page_read(i, memory_base + (i * GS2_PAGE_SIZE), n_hires1_r ? TAG_ALT : TAG_MAIN);
         }
     }
-    if (n_hires1_w != iiememory_d->m_hires1_w) {
+    if (force || n_hires1_w != iiememory_d->m_hires1_w) {
         // change $20 - $3F
-        uint32_t altoffset = n_hires1_w ? 0x1'0000 : 0x0'0000;
+        uint8_t *memory_base = iiememory_bank_base(iiememory_d, n_hires1_w);
         for (int i = 0x20; i <= 0x3F; i++) {
-            iiememory_d->mmu->map_page_write(i, memory_base + altoffset + (i * GS2_PAGE_SIZE), n_hires1_w ? TAG_ALT : TAG_MAIN);
+            iiememory_d->mmu->map_page_write(i, memory_base + (i * GS2_PAGE_SIZE), n_hires1_w ? TAG_ALT : TAG_MAIN);
         }
     }
-    if (n_all_r != iiememory_d->m_all_r) {  
+    if (force || n_all_r != iiememory_d->m_all_r) {
         // change $02 - $03, $08 - $1F, $40 - $BF
-        uint32_t altoffset = n_all_r ? 0x1'0000 : 0x0'0000;
+        uint8_t *memory_base = iiememory_bank_base(iiememory_d, n_all_r);
         for (int i = 0x02; i <= 0x03; i++) {
-            iiememory_d->mmu->map_page_read(i, memory_base + altoffset + (i * GS2_PAGE_SIZE), n_all_r ? TAG_ALT : TAG_MAIN);
+            iiememory_d->mmu->map_page_read(i, memory_base + (i * GS2_PAGE_SIZE), n_all_r ? TAG_ALT : TAG_MAIN);
         }
         for (int i = 0x08; i <= 0x1F; i++) {
-            iiememory_d->mmu->map_page_read(i, memory_base + altoffset + (i * GS2_PAGE_SIZE), n_all_r ? TAG_ALT : TAG_MAIN);
+            iiememory_d->mmu->map_page_read(i, memory_base + (i * GS2_PAGE_SIZE), n_all_r ? TAG_ALT : TAG_MAIN);
         }
         for (int i = 0x40; i <= 0xBF; i++) {
-            iiememory_d->mmu->map_page_read(i, memory_base + altoffset + (i * GS2_PAGE_SIZE), n_all_r ? TAG_ALT : TAG_MAIN);
+            iiememory_d->mmu->map_page_read(i, memory_base + (i * GS2_PAGE_SIZE), n_all_r ? TAG_ALT : TAG_MAIN);
         }
     }
-    if (n_all_w != iiememory_d->m_all_w) {
+    if (force || n_all_w != iiememory_d->m_all_w) {
         // change $02 - $03, $08 - $1F, $40 - $BF
-        uint32_t altoffset = n_all_w ? 0x1'0000 : 0x0'0000;
+        uint8_t *memory_base = iiememory_bank_base(iiememory_d, n_all_w);
         for (int i = 0x02; i <= 0x03; i++) {
-            iiememory_d->mmu->map_page_write(i, memory_base + altoffset + (i * GS2_PAGE_SIZE), n_all_w ? TAG_ALT : TAG_MAIN);
+            iiememory_d->mmu->map_page_write(i, memory_base + (i * GS2_PAGE_SIZE), n_all_w ? TAG_ALT : TAG_MAIN);
         }
         for (int i = 0x08; i <= 0x1F; i++) {
-            iiememory_d->mmu->map_page_write(i, memory_base + altoffset + (i * GS2_PAGE_SIZE), n_all_w ? TAG_ALT : TAG_MAIN);
+            iiememory_d->mmu->map_page_write(i, memory_base + (i * GS2_PAGE_SIZE), n_all_w ? TAG_ALT : TAG_MAIN);
         }
         for (int i = 0x40; i <= 0xBF; i++) {
-            iiememory_d->mmu->map_page_write(i, memory_base + altoffset + (i * GS2_PAGE_SIZE), n_all_w ? TAG_ALT : TAG_MAIN);
+            iiememory_d->mmu->map_page_write(i, memory_base + (i * GS2_PAGE_SIZE), n_all_w ? TAG_ALT : TAG_MAIN);
         }
     }
 
@@ -306,6 +315,18 @@ void iiememory_write_C00X(void *context, uint32_t address, uint8_t data) {
     }
     iiememory_compose_map(iiememory_d);
 
+}
+
+void iiememory_write_appletini_ramworks(void *context, uint32_t address, uint8_t data) {
+    (void)address;
+    iiememory_state_t *state = static_cast<iiememory_state_t *>(context);
+    // The Appletini hardware accepts banks 0-127 and ignores values with
+    // bit 7 set rather than masking them into range.
+    if (!state->appletini_ramworks_enabled || (data & 0x80) != 0) return;
+    if (state->appletini_ramworks_bank == data) return;
+
+    state->appletini_ramworks_bank = data;
+    iiememory_compose_map(state, true);
 }
 
 uint8_t iiememory_read_C01X(void *context, uint32_t address) {
@@ -402,6 +423,10 @@ DebugFormatter *debug_iiememory(iiememory_state_t *iiememory_d) {
         mmu->f_intcxrom, iiememory_d->ll.FF_BANK_1, iiememory_d->ll.FF_READ_ENABLE, !iiememory_d->ll._FF_WRITE_ENABLE);
     f->addLine("TEXT: %1d MIXED: %1d PAGE2: %1d HIRES: %1d",
         iiememory_d->s_text, iiememory_d->s_mixed, iiememory_d->s_page2, iiememory_d->s_hires);
+    if (iiememory_d->appletini_ramworks_enabled) {
+        f->addLine("Appletini RamWorks: 8MB BANK: %u",
+            static_cast<unsigned>(iiememory_d->appletini_ramworks_bank));
+    }
     f->addLine("SlotReg: %02X", mmu->get_slot_register());
     iiememory_d->mmu->debug_output_page(f, 0x00, true);
     iiememory_d->mmu->debug_output_page(f, 0x02);
@@ -439,10 +464,13 @@ void reset_iiememory(iiememory_state_t *lc) {
     // reset page2
     lc->s_page2 = false;
 
+    // Match the Appletini soft-switch manager: Ctrl-Reset selects the base
+    // IIe auxiliary bank while retaining all RamWorks contents.
+    lc->appletini_ramworks_bank = 0;
+
     // TODO: what about the display flags? I don't think these are reset on RESET, but give some consideration.
 
-    bsr_map_memory(lc);
-    iiememory_compose_map(lc);
+    iiememory_compose_map(lc, true);
 }
 
 void init_iiememory(computer_t *computer, SlotType_t slot) {
@@ -506,3 +534,32 @@ void init_iiememory(computer_t *computer, SlotType_t slot) {
     );
 }
 
+bool iiememory_enable_appletini_ramworks(computer_t *computer) {
+    if (computer == nullptr) return false;
+    auto *state = static_cast<iiememory_state_t *>(
+        computer->get_module_state(MODULE_IIEMEMORY));
+    if (state == nullptr) return false;
+    if (state->appletini_ramworks_enabled) return true;
+
+    constexpr std::size_t extra_bank_count =
+        iiememory_state_t::APPLETINI_RAMWORKS_BANK_COUNT - 1;
+    state->appletini_ramworks_extra_banks.resize(
+        extra_bank_count * iiememory_state_t::APPLETINI_RAMWORKS_BANK_SIZE);
+    for (std::size_t i = 0; i < state->appletini_ramworks_extra_banks.size(); i += 4) {
+        state->appletini_ramworks_extra_banks[i] = 0xCC;
+        state->appletini_ramworks_extra_banks[i + 1] = 0xCC;
+        state->appletini_ramworks_extra_banks[i + 2] = 0x00;
+        state->appletini_ramworks_extra_banks[i + 3] = 0x00;
+    }
+
+    state->appletini_ramworks_bank = 0;
+    state->appletini_ramworks_enabled = true;
+    computer->mmu->set_C0XX_write_handler(
+        0xC071, { iiememory_write_appletini_ramworks, state });
+    computer->mmu->set_C0XX_write_handler(
+        0xC073, { iiememory_write_appletini_ramworks, state });
+    iiememory_compose_map(state, true);
+
+    std::printf("Appletini RamWorks: 8MB auxiliary expansion enabled\n");
+    return true;
+}

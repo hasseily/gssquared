@@ -61,6 +61,7 @@ protected:
     Container_t *display_con = nullptr;
     Container_t *platform_con = nullptr;
     Container_t *action_con = nullptr;
+    Container_t *appletini_con = nullptr;
     Button_t *save_btn = nullptr;
     Button_t *cancel_btn = nullptr;
 

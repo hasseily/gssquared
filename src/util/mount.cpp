@@ -44,6 +44,7 @@ bool Mounts::mount_media(disk_mount_t disk_mount, bool force_write_protected) {
         return false;
     }
     
+    it->second.device->prepare_mount(key);
     std::vector<media_descriptor *> media_list;
 
     bool is_dir = false;
