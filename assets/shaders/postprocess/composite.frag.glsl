@@ -149,36 +149,45 @@ void main()
                 outlined = true;
             }
         }
-        vec4 param = bezel;
-        vec4 param_1 = color;
-        color = over(param, param_1);
-        bool _254 = !outlined;
-        bool _261;
-        if (_254)
+        bool _249 = !outlined;
+        bool _256;
+        if (_249)
         {
-            _261 = _58.u[17].z > 0.5;
+            _256 = _58.u[17].z > 0.5;
         }
         else
         {
-            _261 = _254;
+            _256 = _249;
         }
-        bool _267;
-        if (_261)
+        bool _262;
+        if (_256)
         {
-            _267 = _58.u[13].z > 0.0;
+            _262 = _58.u[13].z > 0.0;
         }
         else
         {
-            _267 = _261;
+            _262 = _256;
         }
-        if (_267)
+        if (_262)
         {
             vec4 glass = texture(Glass, uv);
-            glass.w = clamp(glass.w * _58.u[13].z, 0.0, 1.0);
-            vec4 param_2 = glass;
-            vec4 param_3 = color;
-            color = over(param_2, param_3);
+            glass.w *= _58.u[13].z;
+            float alpha = glass.w + (bezel.w * (1.0 - glass.w));
+            vec3 rgb = (glass.xyz * glass.w) + ((bezel.xyz * bezel.w) * (1.0 - glass.w));
+            vec3 _305;
+            if (alpha > 0.0)
+            {
+                _305 = rgb / vec3(alpha);
+            }
+            else
+            {
+                _305 = vec3(0.0);
+            }
+            bezel = vec4(_305, alpha);
         }
+        vec4 param = clamp(bezel, vec4(0.0), vec4(1.0));
+        vec4 param_1 = color;
+        color = over(param, param_1);
     }
     vec4 ui = texture(UserInterface, vUV);
     FragColor = vec4(ui.xyz + (color.xyz * (1.0 - ui.w)), 1.0);

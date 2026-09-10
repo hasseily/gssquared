@@ -57,7 +57,14 @@ int main(int argc,char** argv) {
         require(channel(32,32,0)>250&&channel(32,32,1)<3,"red top left, no vertical inversion");
         require(channel(400,32,1)>250&&channel(400,32,0)<3,"green top right");
         require(channel(32,300,2)>250&&channel(32,300,0)<3,"blue bottom left");
-        auto& settings=processor.settings();settings.p_i_postprocessingLevel=2;settings.p_f_scanlineWeight=0;
+        auto& settings=processor.settings();
+        settings.p_i_postprocessingLevel=2;settings.p_f_scanlineWeight=0;
+        settings.p_f_corner=30;settings.p_b_smoothCorner=true;processor.settings_changed();
+        auto rounded=draw(),rounded_final=bytes(processor.capture_processed());
+        size_t edge=(3*512+128)*4,inside=(40*512+128)*4;
+        require(rounded[edge]>5&&rounded[edge]<rounded[inside]*.8,"smooth corner alpha darkens the CRT edge before history is retained");
+        require(rounded_final[edge]==rounded[edge],"final composition preserves the already blended corner without a second alpha multiply");
+        settings=pp::Settings{};settings.p_i_postprocessingLevel=2;settings.p_f_scanlineWeight=0;
         settings.p_f_ghostingPercent=80;processor.settings_changed();draw();auto ghost=draw(false);
         require(ghost[(32*512+32)*4]>80,"phosphor history survives a dark frame");
         processor.reset_history();auto reset=draw(false);

@@ -24,11 +24,15 @@ void main() {
             bezel=vec4(mix(image.rgb,bezel.rgb,amount),1.0);
             if (u[13].w > 0.5 && outline) { bezel=vec4(1.0,0.0,0.0,1.0); outlined=true; }
         }
-        color=over(bezel,color);
         if (!outlined && u[17].z > 0.5 && u[13].z > 0.0) {
-            vec4 glass=texture(Glass,uv); glass.a=clamp(glass.a*u[13].z,0.0,1.0);
-            color=over(glass,color);
+            // Preserve the source glass-thickness extrapolation, then apply
+            // the normalized render-target clamp before framebuffer blending.
+            vec4 glass=texture(Glass,uv); glass.a*=u[13].z;
+            float alpha=glass.a+bezel.a*(1.0-glass.a);
+            vec3 rgb=glass.rgb*glass.a+bezel.rgb*bezel.a*(1.0-glass.a);
+            bezel=vec4(alpha>0.0?rgb/alpha:vec3(0.0),alpha);
         }
+        color=over(clamp(bezel,0.0,1.0),color);
     }
     // SDL uses straight-alpha input with source-over into a transparent UI
     // target, so its stored RGB is already premultiplied.

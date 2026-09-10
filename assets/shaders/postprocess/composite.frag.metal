@@ -161,36 +161,45 @@ fragment main0_out main0(main0_in in [[stage_in]], constant Context& _58 [[buffe
                 outlined = true;
             }
         }
-        float4 param = bezel;
-        float4 param_1 = color;
-        color = over(param, param_1);
-        bool _254 = !outlined;
-        bool _261;
-        if (_254)
+        bool _249 = !outlined;
+        bool _256;
+        if (_249)
         {
-            _261 = _58.u[17].z > 0.5;
+            _256 = _58.u[17].z > 0.5;
         }
         else
         {
-            _261 = _254;
+            _256 = _249;
         }
-        bool _267;
-        if (_261)
+        bool _262;
+        if (_256)
         {
-            _267 = _58.u[13].z > 0.0;
+            _262 = _58.u[13].z > 0.0;
         }
         else
         {
-            _267 = _261;
+            _262 = _256;
         }
-        if (_267)
+        if (_262)
         {
             float4 glass = Glass.sample(GlassSmplr, uv);
-            glass.w = fast::clamp(glass.w * _58.u[13].z, 0.0, 1.0);
-            float4 param_2 = glass;
-            float4 param_3 = color;
-            color = over(param_2, param_3);
+            glass.w *= _58.u[13].z;
+            float alpha = glass.w + (bezel.w * (1.0 - glass.w));
+            float3 rgb = (glass.xyz * glass.w) + ((bezel.xyz * bezel.w) * (1.0 - glass.w));
+            float3 _305;
+            if (alpha > 0.0)
+            {
+                _305 = rgb / float3(alpha);
+            }
+            else
+            {
+                _305 = float3(0.0);
+            }
+            bezel = float4(_305, alpha);
         }
+        float4 param = fast::clamp(bezel, float4(0.0), float4(1.0));
+        float4 param_1 = color;
+        color = over(param, param_1);
     }
     float4 ui = UserInterface.sample(UserInterfaceSmplr, in.vUV);
     out.FragColor = float4(ui.xyz + (color.xyz * (1.0 - ui.w)), 1.0);

@@ -43,6 +43,7 @@ struct PostProcessor::Impl {
     SDL_GPUGraphicsPipeline* crt_pipeline=nullptr;
     SDL_GPUGraphicsPipeline* composite_pipeline=nullptr;
     SDL_GPUSampler* linear_sampler=nullptr;
+    SDL_GPUSampler* source_sampler=nullptr;
     SDL_GPUSampler* nearest_sampler=nullptr;
     struct Texture { SDL_GPUTexture* gpu=nullptr; SDL_Texture* sdl=nullptr; unsigned gl=0; };
     Texture scene,ui,history[2],bezel,glass;
@@ -92,8 +93,9 @@ struct PostProcessor::Impl {
         if (crt_pipeline && gpu) SDL_ReleaseGPUGraphicsPipeline(gpu,crt_pipeline);
         if (composite_pipeline && gpu) SDL_ReleaseGPUGraphicsPipeline(gpu,composite_pipeline);
         if (linear_sampler && gpu) SDL_ReleaseGPUSampler(gpu,linear_sampler);
+        if (source_sampler && gpu) SDL_ReleaseGPUSampler(gpu,source_sampler);
         if (nearest_sampler && gpu) SDL_ReleaseGPUSampler(gpu,nearest_sampler);
-        crt_pipeline=composite_pipeline=nullptr;linear_sampler=nearest_sampler=nullptr;
+        crt_pipeline=composite_pipeline=nullptr;linear_sampler=source_sampler=nearest_sampler=nullptr;
 #if defined(__EMSCRIPTEN__) || defined(__linux__)
         if (gl_crt) glDeleteProgram(gl_crt);if(gl_composite)glDeleteProgram(gl_composite);
         if(gl_vao)glDeleteVertexArrays(1,&gl_vao);if(gl_ubo)glDeleteBuffers(1,&gl_ubo);
@@ -111,8 +113,19 @@ struct PostProcessor::Impl {
         return create_gpu_shader_from_resource(gpu,path.c_str(),stage,samplers,uniforms,
             (formats&SDL_GPU_SHADERFORMAT_MSL)?"main0":"main");
     }
-    SDL_GPUGraphicsPipeline* pipeline(SDL_GPUShader* vertex,SDL_GPUShader* frag,SDL_GPUTextureFormat format) {
+    SDL_GPUGraphicsPipeline* pipeline(SDL_GPUShader* vertex,SDL_GPUShader* frag,SDL_GPUTextureFormat format,bool blend=false) {
         SDL_GPUColorTargetDescription target{};target.format=format;
+        if(blend){
+            // The source renderer blends the CRT over opaque black before
+            // copying its history, including rounded-corner alpha.
+            target.blend_state.enable_blend=true;
+            target.blend_state.src_color_blendfactor=SDL_GPU_BLENDFACTOR_SRC_ALPHA;
+            target.blend_state.dst_color_blendfactor=SDL_GPU_BLENDFACTOR_ONE_MINUS_SRC_ALPHA;
+            target.blend_state.color_blend_op=SDL_GPU_BLENDOP_ADD;
+            target.blend_state.src_alpha_blendfactor=SDL_GPU_BLENDFACTOR_SRC_ALPHA;
+            target.blend_state.dst_alpha_blendfactor=SDL_GPU_BLENDFACTOR_ONE_MINUS_SRC_ALPHA;
+            target.blend_state.alpha_blend_op=SDL_GPU_BLENDOP_ADD;
+        }
         SDL_GPUGraphicsPipelineCreateInfo info{};
         info.vertex_shader=vertex;info.fragment_shader=frag;
         info.primitive_type=SDL_GPU_PRIMITIVETYPE_TRIANGLELIST;
@@ -131,7 +144,7 @@ struct PostProcessor::Impl {
         auto* crt=shader("crt.frag",SDL_GPU_SHADERSTAGE_FRAGMENT,2,1);
         auto* compose=shader("composite.frag",SDL_GPU_SHADERSTAGE_FRAGMENT,5,1);
         if(vertex&&crt&&compose){
-            crt_pipeline=pipeline(vertex,crt,kFormat);
+            crt_pipeline=pipeline(vertex,crt,kFormat,true);
             composite_pipeline=pipeline(vertex,compose,SDL_GetGPUSwapchainTextureFormat(gpu,window));
         }
         if(vertex)SDL_ReleaseGPUShader(gpu,vertex);
@@ -144,10 +157,12 @@ struct PostProcessor::Impl {
         sampler.address_mode_u=sampler.address_mode_v=sampler.address_mode_w=SDL_GPU_SAMPLERADDRESSMODE_CLAMP_TO_EDGE;
         sampler.max_lod=32.0f;
         linear_sampler=SDL_CreateGPUSampler(gpu,&sampler);
+        sampler.mag_filter=SDL_GPU_FILTER_NEAREST;
+        source_sampler=SDL_CreateGPUSampler(gpu,&sampler);
         sampler.min_filter=sampler.mag_filter=SDL_GPU_FILTER_NEAREST;
         sampler.mipmap_mode=SDL_GPU_SAMPLERMIPMAPMODE_NEAREST;
         nearest_sampler=SDL_CreateGPUSampler(gpu,&sampler);
-        if(!linear_sampler||!nearest_sampler)return false;
+        if(!linear_sampler||!source_sampler||!nearest_sampler)return false;
         backend=Backend::Native;
         message=backend_message="Postprocessing: SDL GPU / "+std::string(SDL_GetGPUDeviceDriver(gpu));
         return true;
@@ -206,6 +221,16 @@ struct PostProcessor::Impl {
             message="Postprocessing: could not allocate render targets: "+std::string(SDL_GetError());
             cleanup_targets();return false;
         }
+#if defined(__EMSCRIPTEN__) || defined(__linux__)
+        if(backend==Backend::GL){
+            glActiveTexture(GL_TEXTURE0);
+            for(auto& t:history){
+                glBindTexture(GL_TEXTURE_2D,t.gl);
+                glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_MIN_FILTER,GL_NEAREST);
+                glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_MAG_FILTER,GL_NEAREST);
+            }
+        }
+#endif
         width=w;height=h;write_index=last_completed=0;merge_count=0;
         // Defined initial history is also required by GPU validation even when
         // shader branches skip sampling history on the first frame.
@@ -241,7 +266,7 @@ struct PostProcessor::Impl {
         assets_dirty=false;
         if(attempted)message=!bezel_error.empty()?bezel_error:!glass_error.empty()?glass_error:backend_message;
     }
-    SDL_FRect output_rect() const {
+    SDL_FRect output_rect(bool apply_zoom=true) const {
         const auto& s=settings;
         float ow=width*frame.source_region.w,oh=height*frame.source_region.h;
         if(s.bCRTFillWindow&&s.p_i_postprocessingLevel>1){ow=width;oh=height;}
@@ -252,8 +277,10 @@ struct PostProcessor::Impl {
             ow=std::max(1,frame.source_width)*std::max(1,s.integer_scale);
             oh=ow/aspect;
         }
-        ow=std::max(1.0f,ow*clamp(s.p_v_zoom[0],.01f,20));
-        oh=std::max(1.0f,oh*clamp(s.p_v_zoom[1],.01f,20));
+        if(apply_zoom){
+            ow=std::max(1.0f,ow*clamp(s.p_v_zoom[0],.01f,20));
+            oh=std::max(1.0f,oh*clamp(s.p_v_zoom[1],.01f,20));
+        }
         return {width*.5f-ow*.5f+ow*finite(s.p_v_center[0])/200,
                 height*.5f-oh*.5f-oh*finite(s.p_v_center[1])/200,ow,oh};
     }
@@ -263,7 +290,8 @@ struct PostProcessor::Impl {
         float ih=std::max(1,frame.sample_height>0?frame.sample_height:frame.source_height);
         // Geometry is expressed in output pixels; source and logical scanlines
         // remain distinct for double-height fields and sharp guest text overlays.
-        const auto rect=output_rect();float ow=rect.w,oh=rect.h;
+        const auto rect=output_rect(),unzoomed=output_rect(false);
+        float ow=unzoomed.w,oh=unzoomed.h;
         u[0]={iw,ih,ow,oh};u[1]={float(std::max(1,frame.scanlines)),float(frame_count%10000000),float(merge_count%10000000),float(std::clamp(s.p_i_postprocessingLevel,0,2))};
         u[2]={clamp(s.p_f_ghostingPercent,0,99.99f),clamp(s.p_f_phosphorBlur,0,2),float(s.p_b_phosphorGlow),float(s.p_b_useOKlab)};
         u[3]={float(s.p_b_smoothCorner),float(s.p_b_slot),clamp(s.p_f_barrelDistortion,-.3f,5),clamp(s.p_f_bgr,0,1)};
@@ -302,13 +330,13 @@ struct PostProcessor::Impl {
         // Implicit minification and explicit phosphor/reflection LOD both use
         // this chain; every level must be defined even with blur disabled.
         SDL_GenerateMipmapsForGPUTexture(cmd,scene.gpu);
-        SDL_GPUTextureSamplerBinding input[2]={{scene.gpu,linear_sampler},{history[1-write_index].gpu,nearest_sampler}};
+        SDL_GPUTextureSamplerBinding input[2]={{scene.gpu,source_sampler},{history[1-write_index].gpu,nearest_sampler}};
         gpu_draw(cmd,history[write_index].gpu,crt_pipeline,input,2,u);
         if(!skip){
             SDL_GPUTexture* swap=nullptr;Uint32 sw=0,sh=0;
             if(!SDL_WaitAndAcquireGPUSwapchainTexture(cmd,window,&swap,&sw,&sh)){SDL_CancelGPUCommandBuffer(cmd);return false;}
             if(swap){
-                SDL_GPUTextureSamplerBinding inputs[5]={{history[write_index].gpu,nearest_sampler},{scene.gpu,linear_sampler},
+                SDL_GPUTextureSamplerBinding inputs[5]={{history[write_index].gpu,nearest_sampler},{scene.gpu,source_sampler},
                     {bezel.gpu,linear_sampler},{glass.gpu,linear_sampler},{ui.gpu,linear_sampler}};
                 gpu_draw(cmd,swap,composite_pipeline,inputs,5,u);
             }
@@ -375,12 +403,15 @@ struct PostProcessor::Impl {
         glActiveTexture(GL_TEXTURE0);glBindTexture(GL_TEXTURE_2D,scene.gl);
         glGenerateMipmap(GL_TEXTURE_2D);
         glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_MIN_FILTER,GL_LINEAR_MIPMAP_LINEAR);
+        glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_MAG_FILTER,GL_NEAREST);
         glBindFramebuffer(GL_FRAMEBUFFER,gl_fbo);
         glFramebufferTexture2D(GL_FRAMEBUFFER,GL_COLOR_ATTACHMENT0,GL_TEXTURE_2D,history[write_index].gl,0);
         if(glCheckFramebufferStatus(GL_FRAMEBUFFER)!=GL_FRAMEBUFFER_COMPLETE)return false;
         glClearColor(0,0,0,1);glClear(GL_COLOR_BUFFER_BIT);glUseProgram(gl_crt);
+        glEnable(GL_BLEND);glBlendEquation(GL_FUNC_ADD);glBlendFunc(GL_SRC_ALPHA,GL_ONE_MINUS_SRC_ALPHA);
         gl_bind(gl_crt,"A2TextureCurrent",0,scene.gl);gl_bind(gl_crt,"PreviousFrame",1,history[1-write_index].gl);
         glDrawArrays(GL_TRIANGLES,0,3);
+        glDisable(GL_BLEND);
         if(!skip){
             glBindFramebuffer(GL_FRAMEBUFFER,0);glClear(GL_COLOR_BUFFER_BIT);glUseProgram(gl_composite);
             gl_bind(gl_composite,"Processed",0,history[write_index].gl);gl_bind(gl_composite,"Source",1,scene.gl);
@@ -516,7 +547,7 @@ SDL_Surface* PostProcessor::capture_processed(){
         if(pipeline){
             auto* cmd=SDL_AcquireGPUCommandBuffer(p.gpu);
             if(cmd){
-                SDL_GPUTextureSamplerBinding inputs[5]={{p.history[p.last_completed].gpu,p.nearest_sampler},{p.scene.gpu,p.linear_sampler},
+                SDL_GPUTextureSamplerBinding inputs[5]={{p.history[p.last_completed].gpu,p.nearest_sampler},{p.scene.gpu,p.source_sampler},
                     {p.bezel.gpu,p.linear_sampler},{p.glass.gpu,p.linear_sampler},{transparent.gpu,p.linear_sampler}};
                 p.gpu_draw(cmd,target.gpu,pipeline,inputs,5,u);okay=SDL_SubmitGPUCommandBuffer(cmd);
             }

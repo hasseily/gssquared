@@ -54,14 +54,49 @@ layout(location=0) out vec4 FragColor;
 #define vCENTER (vec2(0.0))
 #define vZOOM (vec2(1.0))
 #define ps ((1.0 / TextureSize))
+// SDL GPU and WebGL2 expose clamp-to-edge, while the source CRT samples a
+// transparent border. Retain native sampling away from the edge and emulate
+// border texels only where a bilinear/trilinear footprint crosses it.
+vec4 CurrentBorderTexel(ivec2 at, int level) {
+    ivec2 size=textureSize(A2TextureCurrent,level);
+    vec2 center=(vec2(at)+0.5)/vec2(size);
+    if(any(lessThan(at,ivec2(0))) || any(greaterThanEqual(at,size)) ||
+       any(lessThan(center,u[11].xy)) || any(greaterThanEqual(center,u[11].xy+u[11].zw))) return vec4(0.0);
+    return texelFetch(A2TextureCurrent,at,level);
+}
+vec4 CurrentBorderLinear(vec2 uv, int level) {
+    vec2 at=uv*vec2(textureSize(A2TextureCurrent,level))-0.5;
+    ivec2 low=ivec2(floor(at));vec2 weight=fract(at);
+    return mix(mix(CurrentBorderTexel(low,level),CurrentBorderTexel(low+ivec2(1,0),level),weight.x),
+               mix(CurrentBorderTexel(low+ivec2(0,1),level),CurrentBorderTexel(low+ivec2(1,1),level),weight.x),weight.y);
+}
+vec4 CurrentAtLod(vec2 p, float requested_lod) {
+    vec2 uv=u[11].xy+p*u[11].zw;
+    if(requested_lod<=0.0){
+        if(any(lessThan(p,vec2(0.0))) || any(greaterThanEqual(p,vec2(1.0)))) return vec4(0.0);
+        return textureLod(A2TextureCurrent,uv,0.0); // nearest magnification
+    }
+    float last=floor(log2(float(max(textureSize(A2TextureCurrent,0).x,textureSize(A2TextureCurrent,0).y))));
+    float lod=min(requested_lod,last);
+    vec2 coarse=vec2(textureSize(A2TextureCurrent,int(ceil(lod))))*u[11].zw;
+    if(all(greaterThanEqual(p*coarse,vec2(0.5))) && all(greaterThanEqual((1.0-p)*coarse,vec2(0.5))))
+        return textureLod(A2TextureCurrent,uv,lod);
+    int low=int(floor(lod)),high=min(low+1,int(last));
+    return mix(CurrentBorderLinear(uv,low),CurrentBorderLinear(uv,high),fract(lod));
+}
 vec4 SampleCurrent(vec2 p) {
-    if (any(lessThan(p,vec2(0.0))) || any(greaterThan(p,vec2(1.0)))) return vec4(0.0);
-    return texture(A2TextureCurrent, u[11].xy + p*u[11].zw);
+    vec2 uv=u[11].xy+p*u[11].zw;
+    vec2 size=vec2(textureSize(A2TextureCurrent,0));
+    vec2 gradient_x=dFdx(uv),gradient_y=dFdy(uv);
+    vec2 dx=gradient_x*size,dy=gradient_y*size;
+    float lod=0.5*log2(max(max(dot(dx,dx),dot(dy,dy)),1e-20));
+    float last=floor(log2(max(size.x,size.y)));
+    vec2 coarse=vec2(textureSize(A2TextureCurrent,int(ceil(clamp(lod,0.0,last)))))*u[11].zw;
+    if(all(greaterThanEqual(p*coarse,vec2(0.5))) && all(greaterThanEqual((1.0-p)*coarse,vec2(0.5))))
+        return textureGrad(A2TextureCurrent,uv,gradient_x,gradient_y);
+    return CurrentAtLod(p,lod);
 }
-vec4 SampleCurrentLod(vec2 p, float lod) {
-    if (any(lessThan(p,vec2(0.0))) || any(greaterThan(p,vec2(1.0)))) return vec4(0.0);
-    return textureLod(A2TextureCurrent, u[11].xy + p*u[11].zw, lod+u[17].x);
-}
+vec4 SampleCurrentLod(vec2 p, float lod) { return CurrentAtLod(p,lod+u[17].x); }
 vec4 SamplePrevious(vec2 p) { return texture(PreviousFrame,u[12].xy+p*u[12].zw); }
 vec2 TexCoords;
 #define fTime (u[16].z)
@@ -295,7 +330,7 @@ vec3 slot(vec2 pos) {
 			return vec3(0.5);
 		else
 			return vec3(1.5);
-	} else if (odd == 1.0) {
+	} else {
 		if (h<0.5)
 			return vec3(1.5);
 		else

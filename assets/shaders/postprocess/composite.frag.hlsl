@@ -179,36 +179,45 @@ void frag_main()
                 outlined = true;
             }
         }
-        float4 param = bezel;
-        float4 param_1 = color;
-        color = over(param, param_1);
-        bool _254 = !outlined;
-        bool _261;
-        if (_254)
+        bool _249 = !outlined;
+        bool _256;
+        if (_249)
         {
-            _261 = _58_u[17].z > 0.5f;
+            _256 = _58_u[17].z > 0.5f;
         }
         else
         {
-            _261 = _254;
+            _256 = _249;
         }
-        bool _267;
-        if (_261)
+        bool _262;
+        if (_256)
         {
-            _267 = _58_u[13].z > 0.0f;
+            _262 = _58_u[13].z > 0.0f;
         }
         else
         {
-            _267 = _261;
+            _262 = _256;
         }
-        if (_267)
+        if (_262)
         {
             float4 glass = Glass.Sample(_Glass_sampler, uv);
-            glass.w = clamp(glass.w * _58_u[13].z, 0.0f, 1.0f);
-            float4 param_2 = glass;
-            float4 param_3 = color;
-            color = over(param_2, param_3);
+            glass.w *= _58_u[13].z;
+            float alpha = glass.w + (bezel.w * (1.0f - glass.w));
+            float3 rgb = (glass.xyz * glass.w) + ((bezel.xyz * bezel.w) * (1.0f - glass.w));
+            float3 _305;
+            if (alpha > 0.0f)
+            {
+                _305 = rgb / alpha.xxx;
+            }
+            else
+            {
+                _305 = 0.0f.xxx;
+            }
+            bezel = float4(_305, alpha);
         }
+        float4 param = clamp(bezel, 0.0f.xxxx, 1.0f.xxxx);
+        float4 param_1 = color;
+        color = over(param, param_1);
     }
     float4 ui = UserInterface.Sample(_UserInterface_sampler, vUV);
     FragColor = float4(ui.xyz + (color.xyz * (1.0f - ui.w)), 1.0f);

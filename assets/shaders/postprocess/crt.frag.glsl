@@ -3,12 +3,10 @@
 #extension GL_ARB_shading_language_420pack : require
 #endif
 
-vec3 _796;
-
 layout(binding = 0, std140) uniform Context
 {
     vec4 u[18];
-} _162;
+} _192;
 
 layout(binding = 0) uniform sampler2D A2TextureCurrent;
 layout(binding = 1) uniform sampler2D PreviousFrame;
@@ -20,23 +18,136 @@ mat3 NTSC;
 mat3 NTSC_J;
 vec2 TexCoords;
 
-vec4 SampleCurrent(vec2 p)
+vec4 CurrentBorderTexel(ivec2 at, int level)
 {
-    bool _141 = any(lessThan(p, vec2(0.0)));
-    bool _150;
-    if (!_141)
+    ivec2 size = textureSize(A2TextureCurrent, level);
+    vec2 center = (vec2(at) + vec2(0.5)) / vec2(size);
+    bool _174 = any(lessThan(at, ivec2(0)));
+    bool _182;
+    if (!_174)
     {
-        _150 = any(greaterThan(p, vec2(1.0)));
+        _182 = any(greaterThanEqual(at, size));
     }
     else
     {
-        _150 = _141;
+        _182 = _174;
     }
-    if (_150)
+    bool _200;
+    if (!_182)
+    {
+        _200 = any(lessThan(center, _192.u[11].xy));
+    }
+    else
+    {
+        _200 = _182;
+    }
+    bool _214;
+    if (!_200)
+    {
+        _214 = any(greaterThanEqual(center, _192.u[11].xy + _192.u[11].zw));
+    }
+    else
+    {
+        _214 = _200;
+    }
+    if (_214)
     {
         return vec4(0.0);
     }
-    return texture(A2TextureCurrent, _162.u[11].xy + (p * _162.u[11].zw));
+    return texelFetch(A2TextureCurrent, at, level);
+}
+
+vec4 CurrentBorderLinear(vec2 uv, int level)
+{
+    vec2 at = (uv * vec2(textureSize(A2TextureCurrent, level))) - vec2(0.5);
+    ivec2 low = ivec2(floor(at));
+    vec2 weight = fract(at);
+    ivec2 param = low;
+    int param_1 = level;
+    ivec2 param_2 = low + ivec2(1, 0);
+    int param_3 = level;
+    ivec2 param_4 = low + ivec2(0, 1);
+    int param_5 = level;
+    ivec2 param_6 = low + ivec2(1);
+    int param_7 = level;
+    return mix(mix(CurrentBorderTexel(param, param_1), CurrentBorderTexel(param_2, param_3), vec4(weight.x)), mix(CurrentBorderTexel(param_4, param_5), CurrentBorderTexel(param_6, param_7), vec4(weight.x)), vec4(weight.y));
+}
+
+vec4 CurrentAtLod(vec2 p, float requested_lod)
+{
+    vec2 uv = _192.u[11].xy + (p * _192.u[11].zw);
+    if (requested_lod <= 0.0)
+    {
+        bool _304 = any(lessThan(p, vec2(0.0)));
+        bool _313;
+        if (!_304)
+        {
+            _313 = any(greaterThanEqual(p, vec2(1.0)));
+        }
+        else
+        {
+            _313 = _304;
+        }
+        if (_313)
+        {
+            return vec4(0.0);
+        }
+        return textureLod(A2TextureCurrent, uv, 0.0);
+    }
+    float last = floor(log2(float(max(textureSize(A2TextureCurrent, 0).x, textureSize(A2TextureCurrent, 0).y))));
+    float lod = min(requested_lod, last);
+    vec2 coarse = vec2(textureSize(A2TextureCurrent, int(ceil(lod)))) * _192.u[11].zw;
+    bool _355 = all(greaterThanEqual(p * coarse, vec2(0.5)));
+    bool _365;
+    if (_355)
+    {
+        _365 = all(greaterThanEqual((vec2(1.0) - p) * coarse, vec2(0.5)));
+    }
+    else
+    {
+        _365 = _355;
+    }
+    if (_365)
+    {
+        return textureLod(A2TextureCurrent, uv, lod);
+    }
+    int low = int(floor(lod));
+    int high = min((low + 1), int(last));
+    vec2 param = uv;
+    int param_1 = low;
+    vec2 param_2 = uv;
+    int param_3 = high;
+    return mix(CurrentBorderLinear(param, param_1), CurrentBorderLinear(param_2, param_3), vec4(fract(lod)));
+}
+
+vec4 SampleCurrent(vec2 p)
+{
+    vec2 uv = _192.u[11].xy + (p * _192.u[11].zw);
+    vec2 size = vec2(textureSize(A2TextureCurrent, 0));
+    vec2 gradient_x = dFdx(uv);
+    vec2 gradient_y = dFdy(uv);
+    vec2 dx = gradient_x * size;
+    vec2 dy = gradient_y * size;
+    float lod = 0.5 * log2(max(max(dot(dx, dx), dot(dy, dy)), 9.9999996826552253889678874634872e-21));
+    float last = floor(log2(max(size.x, size.y)));
+    vec2 coarse = vec2(textureSize(A2TextureCurrent, int(ceil(clamp(lod, 0.0, last))))) * _192.u[11].zw;
+    bool _466 = all(greaterThanEqual(p * coarse, vec2(0.5)));
+    bool _476;
+    if (_466)
+    {
+        _476 = all(greaterThanEqual((vec2(1.0) - p) * coarse, vec2(0.5)));
+    }
+    else
+    {
+        _476 = _466;
+    }
+    if (_476)
+    {
+        return textureGrad(A2TextureCurrent, uv, gradient_x, gradient_y);
+    }
+    vec2 param = p;
+    float param_1 = lod;
+    return CurrentAtLod(param, param_1);
 }
 
 vec3 s2l(vec3 c)
@@ -46,22 +157,22 @@ vec3 s2l(vec3 c)
 
 vec4 SamplePrevious(vec2 p)
 {
-    return texture(PreviousFrame, _162.u[12].xy + (p * _162.u[12].zw));
+    return texture(PreviousFrame, _192.u[12].xy + (p * _192.u[12].zw));
 }
 
 vec4 HalveFrameRate(vec2 coords, vec4 currentColor)
 {
-    bool _385 = _162.u[16].x > 0.5;
-    bool _394;
-    if (_385)
+    bool _675 = _192.u[16].x > 0.5;
+    bool _683;
+    if (_675)
     {
-        _394 = (int(_162.u[1].z) & 1) == 1;
+        _683 = (int(_192.u[1].z) & 1) == 1;
     }
     else
     {
-        _394 = _385;
+        _683 = _675;
     }
-    if (_394)
+    if (_683)
     {
         vec2 param = coords;
         vec3 param_1 = SamplePrevious(param).xyz;
@@ -92,7 +203,7 @@ vec3 cbrt3(vec3 v)
 
 vec3 l2oklab(vec3 rgb)
 {
-    if (!(_162.u[2].w > 0.5))
+    if (!(_192.u[2].w > 0.5))
     {
         return rgb;
     }
@@ -103,7 +214,7 @@ vec3 l2oklab(vec3 rgb)
 
 vec3 oklab2l(vec3 lab)
 {
-    if (!(_162.u[2].w > 0.5))
+    if (!(_192.u[2].w > 0.5))
     {
         return lab;
     }
@@ -113,31 +224,31 @@ vec3 oklab2l(vec3 lab)
 
 vec4 GenerateGhosting(vec2 coords, inout vec4 currentColor)
 {
-    if (_162.u[16].x < 0.5)
+    if (_192.u[16].x < 0.5)
     {
         return currentColor;
     }
-    float ghosting = _162.u[2].x / 100.0;
+    float ghosting = _192.u[2].x / 100.0;
     vec4 blended = vec4(0.0);
     vec2 param = coords;
     vec4 previousColor = SamplePrevious(param);
     vec3 param_1 = previousColor.xyz;
-    vec3 _439 = s2l(param_1);
-    previousColor.x = _439.x;
-    previousColor.y = _439.y;
-    previousColor.z = _439.z;
-    if (_162.u[2].w > 0.5)
+    vec3 _728 = s2l(param_1);
+    previousColor.x = _728.x;
+    previousColor.y = _728.y;
+    previousColor.z = _728.z;
+    if (_192.u[2].w > 0.5)
     {
         vec3 param_2 = previousColor.xyz;
-        vec3 _454 = l2oklab(param_2);
-        previousColor.x = _454.x;
-        previousColor.y = _454.y;
-        previousColor.z = _454.z;
+        vec3 _743 = l2oklab(param_2);
+        previousColor.x = _743.x;
+        previousColor.y = _743.y;
+        previousColor.z = _743.z;
         vec3 param_3 = currentColor.xyz;
-        vec3 _464 = l2oklab(param_3);
-        currentColor.x = _464.x;
-        currentColor.y = _464.y;
-        currentColor.z = _464.z;
+        vec3 _753 = l2oklab(param_3);
+        currentColor.x = _753.x;
+        currentColor.y = _753.y;
+        currentColor.z = _753.z;
         if (currentColor.x > previousColor.x)
         {
             blended = mix(currentColor, previousColor, vec4(0.00999999977648258209228515625));
@@ -150,10 +261,10 @@ vec4 GenerateGhosting(vec2 coords, inout vec4 currentColor)
             blended = mix(currentColor, previousColor, vec4(ghosting));
         }
         vec3 param_4 = blended.xyz;
-        vec3 _506 = oklab2l(param_4);
-        blended.x = _506.x;
-        blended.y = _506.y;
-        blended.z = _506.z;
+        vec3 _795 = oklab2l(param_4);
+        blended.x = _795.x;
+        blended.y = _795.y;
+        blended.z = _795.z;
     }
     else
     {
@@ -181,7 +292,7 @@ vec4 GenerateGhosting(vec2 coords, inout vec4 currentColor)
 vec2 Warp(inout vec2 pos)
 {
     pos = (pos * 2.0) - vec2(1.0);
-    pos *= vec2(1.0 + ((pos.y * pos.y) * _162.u[10].z), 1.0 + ((pos.x * pos.x) * _162.u[10].w));
+    pos *= vec2(1.0 + ((pos.y * pos.y) * _192.u[10].z), 1.0 + ((pos.x * pos.x) * _192.u[10].w));
     pos = (pos * 0.5) + vec2(0.5);
     return pos;
 }
@@ -191,9 +302,9 @@ vec2 BarrelDistortion(vec2 uv)
     vec2 delta = uv - vec2(0.5);
     float delta2 = dot(delta, delta);
     float delta4 = delta2 * delta2;
-    float delta_offset = delta4 * _162.u[3].z;
+    float delta_offset = delta4 * _192.u[3].z;
     vec2 warped = uv + (delta * delta_offset);
-    return ((warped - vec2(0.5)) / vec2(mix(1.0, 1.2000000476837158203125, _162.u[3].z / 5.0))) + vec2(0.5);
+    return ((warped - vec2(0.5)) / vec2(mix(1.0, 1.2000000476837158203125, _192.u[3].z / 5.0))) + vec2(0.5);
 }
 
 float roundCorners(vec2 p, vec2 b, float r)
@@ -203,21 +314,9 @@ float roundCorners(vec2 p, vec2 b, float r)
 
 vec4 SampleCurrentLod(vec2 p, float lod)
 {
-    bool _181 = any(lessThan(p, vec2(0.0)));
-    bool _188;
-    if (!_181)
-    {
-        _188 = any(greaterThan(p, vec2(1.0)));
-    }
-    else
-    {
-        _188 = _181;
-    }
-    if (_188)
-    {
-        return vec4(0.0);
-    }
-    return textureLod(A2TextureCurrent, _162.u[11].xy + (p * _162.u[11].zw), lod + _162.u[17].x);
+    vec2 param = p;
+    float param_1 = lod + _192.u[17].x;
+    return CurrentAtLod(param, param_1);
 }
 
 vec4 PhosphorBlur(sampler2D tex, vec2 uv, vec2 resolution, float blurAmount)
@@ -226,19 +325,19 @@ vec4 PhosphorBlur(sampler2D tex, vec2 uv, vec2 resolution, float blurAmount)
     float param_1 = blurAmount * 4.0;
     vec4 color = SampleCurrentLod(param, param_1);
     vec3 param_2 = color.xyz;
-    vec3 _572 = s2l(param_2);
-    color.x = _572.x;
-    color.y = _572.y;
-    color.z = _572.z;
-    if (_162.u[2].z > 0.5)
+    vec3 _861 = s2l(param_2);
+    color.x = _861.x;
+    color.y = _861.y;
+    color.z = _861.z;
+    if (_192.u[2].z > 0.5)
     {
-        vec4 _584 = color;
+        vec4 _873 = color;
         vec2 param_3 = uv;
         vec3 param_4 = SampleCurrent(param_3).xyz;
-        vec3 _594 = mix(_584.xyz, s2l(param_4), vec3(0.300000011920928955078125));
-        color.x = _594.x;
-        color.y = _594.y;
-        color.z = _594.z;
+        vec3 _883 = mix(_873.xyz, s2l(param_4), vec3(0.300000011920928955078125));
+        color.x = _883.x;
+        color.y = _883.y;
+        color.z = _883.z;
     }
     return clamp(color, vec4(0.0), vec4(1.0));
 }
@@ -255,12 +354,12 @@ float rand(vec2 co)
 
 vec3 Mask(vec2 pos, float CGWG)
 {
-    if (int(_162.u[10].x) == 0)
+    if (int(_192.u[10].x) == 0)
     {
         return vec3(1.0);
     }
     vec3 mask = vec3(CGWG);
-    if (int(_162.u[10].x) == 1)
+    if (int(_192.u[10].x) == 1)
     {
         if (false)
         {
@@ -281,7 +380,7 @@ vec3 Mask(vec2 pos, float CGWG)
             return mask;
         }
     }
-    if (int(_162.u[10].x) == 2)
+    if (int(_192.u[10].x) == 2)
     {
         if (false)
         {
@@ -292,16 +391,16 @@ vec3 Mask(vec2 pos, float CGWG)
             float m_1 = fract(pos.x * 0.33329999446868896484375);
             if (m_1 < 0.33329999446868896484375)
             {
-                vec3 _693;
-                if (_162.u[3].w == 0.0)
+                vec3 _982;
+                if (_192.u[3].w == 0.0)
                 {
-                    _693 = vec3(mask.x, mask.y, 1.0);
+                    _982 = vec3(mask.x, mask.y, 1.0);
                 }
                 else
                 {
-                    _693 = vec3(1.0, mask.y, mask.z);
+                    _982 = vec3(1.0, mask.y, mask.z);
                 }
-                mask = _693;
+                mask = _982;
             }
             else
             {
@@ -311,16 +410,16 @@ vec3 Mask(vec2 pos, float CGWG)
                 }
                 else
                 {
-                    vec3 _719;
-                    if (_162.u[3].w == 0.0)
+                    vec3 _1008;
+                    if (_192.u[3].w == 0.0)
                     {
-                        _719 = vec3(1.0, mask.y, mask.z);
+                        _1008 = vec3(1.0, mask.y, mask.z);
                     }
                     else
                     {
-                        _719 = vec3(mask.x, mask.y, 1.0);
+                        _1008 = vec3(mask.x, mask.y, 1.0);
                     }
-                    mask = _719;
+                    mask = _1008;
                 }
             }
             return mask;
@@ -331,7 +430,7 @@ vec3 Mask(vec2 pos, float CGWG)
 
 vec3 slot(vec2 pos)
 {
-    float h = fract(pos.x / _162.u[9].y);
+    float h = fract(pos.x / _192.u[9].y);
     float v = fract(pos.y);
     float odd;
     if (v < 0.5)
@@ -355,16 +454,13 @@ vec3 slot(vec2 pos)
     }
     else
     {
-        if (odd == 1.0)
+        if (h < 0.5)
         {
-            if (h < 0.5)
-            {
-                return vec3(1.5);
-            }
-            else
-            {
-                return vec3(0.5);
-            }
+            return vec3(1.5);
+        }
+        else
+        {
+            return vec3(0.5);
         }
     }
 }
@@ -374,40 +470,40 @@ void main()
     PAL = mat3(vec3(1.07400000095367431640625, -0.0573999993503093719482421875, -0.011900000274181365966796875), vec3(0.038400001823902130126953125, 0.96990001201629638671875, -0.005900000222027301788330078125), vec3(-0.0078999996185302734375, 0.02040000073611736297607421875, 0.988399982452392578125));
     NTSC = mat3(vec3(0.93180000782012939453125, 0.0412000007927417755126953125, 0.02170000039041042327880859375), vec3(0.013500000350177288055419921875, 0.97109997272491455078125, 0.014800000004470348358154296875), vec3(0.0054999999701976776123046875, -0.0142999999225139617919921875, 1.00849997997283935546875));
     NTSC_J = mat3(vec3(0.950100004673004150390625, -0.04309999942779541015625, 0.085699997842311859130859375), vec3(0.02649999968707561492919921875, 0.927799999713897705078125, 0.04320000112056732177734375), vec3(0.0010999999940395355224609375, -0.02060000039637088775634765625, 1.31529998779296875));
-    TexCoords = (vUV - _162.u[12].xy) / _162.u[12].zw;
+    TexCoords = (vUV - _192.u[12].xy) / _192.u[12].zw;
     FragColor = vec4(0.0, 0.0, 0.0, 1.0);
-    bool _908 = any(lessThan(TexCoords, vec2(0.0)));
-    bool _915;
-    if (!_908)
+    bool _1193 = any(lessThan(TexCoords, vec2(0.0)));
+    bool _1200;
+    if (!_1193)
     {
-        _915 = any(greaterThan(TexCoords, vec2(1.0)));
+        _1200 = any(greaterThan(TexCoords, vec2(1.0)));
     }
     else
     {
-        _915 = _908;
+        _1200 = _1193;
     }
-    if (_915)
+    if (_1200)
     {
         return;
     }
-    if (int(_162.u[1].w) <= 1)
+    if (int(_192.u[1].w) <= 1)
     {
         vec2 param = TexCoords;
         vec4 color = SampleCurrent(param);
-        if (int(_162.u[1].w) == 1)
+        if (int(_192.u[1].w) == 1)
         {
-            vec4 _944 = color;
-            vec3 _946 = _944.xyz * (1.0 - mod(floor(TexCoords.y * _162.u[0].y), 2.0));
-            color.x = _946.x;
-            color.y = _946.y;
-            color.z = _946.z;
+            vec4 _1229 = color;
+            vec3 _1231 = _1229.xyz * (1.0 - mod(floor(TexCoords.y * _192.u[0].y), 2.0));
+            color.x = _1231.x;
+            color.y = _1231.y;
+            color.z = _1231.z;
         }
         vec3 param_1 = color.xyz;
-        vec3 _956 = s2l(param_1);
-        color.x = _956.x;
-        color.y = _956.y;
-        color.z = _956.z;
-        if (_162.u[16].y > 0.5)
+        vec3 _1241 = s2l(param_1);
+        color.x = _1241.x;
+        color.y = _1241.y;
+        color.z = _1241.z;
+        if (_192.u[16].y > 0.5)
         {
             vec2 param_2 = TexCoords;
             vec4 param_3 = color;
@@ -417,107 +513,107 @@ void main()
         FragColor = vec4(l2s(param_4), 1.0);
         return;
     }
-    vec2 q = (TexCoords * _162.u[0].xy) / _162.u[0].xy;
+    vec2 q = (TexCoords * _192.u[0].xy) / _192.u[0].xy;
     vec2 uv = q;
-    float o = (2.0 * mod(gl_FragCoord.y, 2.0)) / _162.u[0].z;
-    bool _1007 = uv.x < 0.0;
-    bool _1014;
-    if (!_1007)
+    float o = (2.0 * mod(gl_FragCoord.y, 2.0)) / _192.u[0].z;
+    bool _1292 = uv.x < 0.0;
+    bool _1299;
+    if (!_1292)
     {
-        _1014 = uv.x > 1.0;
+        _1299 = uv.x > 1.0;
     }
     else
     {
-        _1014 = _1007;
+        _1299 = _1292;
     }
-    if (_1014)
+    if (_1299)
     {
         discard;
     }
-    bool _1020 = uv.y < 0.0;
-    bool _1027;
-    if (!_1020)
+    bool _1305 = uv.y < 0.0;
+    bool _1312;
+    if (!_1305)
     {
-        _1027 = uv.y > 1.0;
+        _1312 = uv.y > 1.0;
     }
     else
     {
-        _1027 = _1020;
+        _1312 = _1305;
     }
-    if (_1027)
+    if (_1312)
     {
         discard;
     }
-    if (int(_162.u[1].w) == 1)
+    if (int(_192.u[1].w) == 1)
     {
         vec2 param_5 = TexCoords;
         FragColor = SampleCurrent(param_5);
-        vec4 _1040 = FragColor;
-        vec3 _1050 = _1040.xyz * (1.0 - mod(floor(TexCoords.y * _162.u[0].y), 2.0));
-        FragColor.x = _1050.x;
-        FragColor.y = _1050.y;
-        FragColor.z = _1050.z;
-        if (_162.u[16].y > 0.5)
+        vec4 _1325 = FragColor;
+        vec3 _1335 = _1325.xyz * (1.0 - mod(floor(TexCoords.y * _192.u[0].y), 2.0));
+        FragColor.x = _1335.x;
+        FragColor.y = _1335.y;
+        FragColor.z = _1335.z;
+        if (_192.u[16].y > 0.5)
         {
             vec2 param_6 = TexCoords;
             vec4 param_7 = FragColor;
             FragColor = HalveFrameRate(param_6, param_7);
         }
-        if (_162.u[2].x > 9.9999997473787516355514526367188e-05)
+        if (_192.u[2].x > 9.9999997473787516355514526367188e-05)
         {
             vec2 param_8 = TexCoords;
             vec4 param_9 = FragColor;
-            vec4 _1078 = GenerateGhosting(param_8, param_9);
-            FragColor = _1078;
+            vec4 _1363 = GenerateGhosting(param_8, param_9);
+            FragColor = _1363;
         }
         return;
     }
-    if (int(_162.u[10].y) == 1)
+    if (int(_192.u[10].y) == 1)
     {
-        if (mod(floor(TexCoords.y * _162.u[0].y), 2.0) > 0.89999997615814208984375)
+        if (mod(floor(TexCoords.y * _192.u[0].y), 2.0) > 0.89999997615814208984375)
         {
             discard;
         }
     }
-    mat3 hue = mat3(vec3(1.0, _162.u[7].x, _162.u[6].w), vec3(-_162.u[7].x, 1.0, _162.u[6].z), vec3(-_162.u[6].w, -_162.u[6].z, 1.0));
+    mat3 hue = mat3(vec3(1.0, _192.u[7].x, _192.u[6].w), vec3(-_192.u[7].x, 1.0, _192.u[6].z), vec3(-_192.u[6].w, -_192.u[6].z, 1.0));
     vec2 param_10 = TexCoords;
-    vec2 _1124 = Warp(param_10);
-    vec2 pos = _1124;
+    vec2 _1409 = Warp(param_10);
+    vec2 pos = _1409;
     vec2 param_11 = pos;
     pos = BarrelDistortion(param_11);
     vec2 bpos = pos;
-    vec2 dx = vec2((vec2(1.0) / _162.u[0].xy).x, 0.0);
-    vec2 ogl2 = pos * _162.u[0].xy;
-    vec2 i = floor(pos * _162.u[0].xy) + vec2(0.5);
+    vec2 dx = vec2((vec2(1.0) / _192.u[0].xy).x, 0.0);
+    vec2 ogl2 = pos * _192.u[0].xy;
+    vec2 i = floor(pos * _192.u[0].xy) + vec2(0.5);
     float f = ogl2.y - i.y;
-    pos.y = (i.y + (((4.0 * f) * f) * f)) * (vec2(1.0) / _162.u[0].xy).y;
-    pos.x = mix(pos.x, i.x * (vec2(1.0) / _162.u[0].xy).x, 0.20000000298023223876953125);
+    pos.y = (i.y + (((4.0 * f) * f) * f)) * (vec2(1.0) / _192.u[0].xy).y;
+    pos.x = mix(pos.x, i.x * (vec2(1.0) / _192.u[0].xy).x, 0.20000000298023223876953125);
     float corn = 1.0;
-    if (_162.u[5].w > 9.9999999747524270787835121154785e-07)
+    if (_192.u[5].w > 9.9999999747524270787835121154785e-07)
     {
-        vec2 halfRes = _162.u[0].zw * 0.5;
-        vec2 param_12 = (pos * _162.u[0].zw) - halfRes;
+        vec2 halfRes = _192.u[0].zw * 0.5;
+        vec2 param_12 = (pos * _192.u[0].zw) - halfRes;
         vec2 param_13 = halfRes;
-        float param_14 = abs((_162.u[5].w * _162.u[0].z) * 30.0);
+        float param_14 = abs((_192.u[5].w * _192.u[0].z) * 30.0);
         float b = 1.0 - roundCorners(param_12, param_13, param_14);
-        if (_162.u[3].x > 0.5)
+        if (_192.u[3].x > 0.5)
         {
             corn = b / 10.0;
         }
         else
         {
-            if (b < _162.u[5].w)
+            if (b < _192.u[5].w)
             {
                 discard;
             }
         }
     }
     vec4 res0;
-    if (_162.u[2].y > 0.001000000047497451305389404296875)
+    if (_192.u[2].y > 0.001000000047497451305389404296875)
     {
         vec2 param_15 = pos;
-        vec2 param_16 = _162.u[0].xy;
-        float param_17 = _162.u[2].y;
+        vec2 param_16 = _192.u[0].xy;
+        float param_17 = _192.u[2].y;
         res0 = PhosphorBlur(A2TextureCurrent, param_15, param_16, param_17);
     }
     else
@@ -525,122 +621,122 @@ void main()
         vec2 param_18 = pos;
         res0 = SampleCurrent(param_18);
         vec3 param_19 = res0.xyz;
-        vec3 _1265 = s2l(param_19);
-        res0.x = _1265.x;
-        res0.y = _1265.y;
-        res0.z = _1265.z;
+        vec3 _1550 = s2l(param_19);
+        res0.x = _1550.x;
+        res0.y = _1550.y;
+        res0.z = _1550.z;
     }
     vec3 res = res0.xyz;
     if (res0.w <= 0.0)
     {
         return;
     }
-    if (_162.u[6].x > 9.9999997473787516355514526367188e-05)
+    if (_192.u[6].x > 9.9999997473787516355514526367188e-05)
     {
-        if (((abs(_162.u[5].z) + abs(_162.u[5].y)) + abs(_162.u[5].x)) > 0.001000000047497451305389404296875)
+        if (((abs(_192.u[5].z) + abs(_192.u[5].y)) + abs(_192.u[5].x)) > 0.001000000047497451305389404296875)
         {
-            vec2 param_20 = pos + (dx * _162.u[5].z);
+            vec2 param_20 = pos + (dx * _192.u[5].z);
             float resr = SampleCurrent(param_20).x;
-            vec2 param_21 = pos + (dx * _162.u[5].y);
+            vec2 param_21 = pos + (dx * _192.u[5].y);
             float resg = SampleCurrent(param_21).y;
-            vec2 param_22 = pos + (dx * _162.u[5].x);
+            vec2 param_22 = pos + (dx * _192.u[5].x);
             float resb = SampleCurrent(param_22).z;
-            res = vec3((res0.x * (1.0 - _162.u[6].x)) + (resr * _162.u[6].x), (res0.y * (1.0 - _162.u[6].x)) + (resg * _162.u[6].x), (res0.z * (1.0 - _162.u[6].x)) + (resb * _162.u[6].x));
+            res = vec3((res0.x * (1.0 - _192.u[6].x)) + (resr * _192.u[6].x), (res0.y * (1.0 - _192.u[6].x)) + (resg * _192.u[6].x), (res0.z * (1.0 - _192.u[6].x)) + (resb * _192.u[6].x));
         }
     }
-    float l = dot(vec3(_162.u[4].y), res);
+    float l = dot(vec3(_192.u[4].y), res);
     float CGWG = 0.300000011920928955078125;
-    if (_162.u[3].y > 0.5)
+    if (_192.u[3].y > 0.5)
     {
-        CGWG = mix(_162.u[7].z, _162.u[7].y, l);
+        CGWG = mix(_192.u[7].z, _192.u[7].y, l);
     }
-    if (int(_162.u[10].y) == 2)
+    if (int(_192.u[10].y) == 2)
     {
-        if (_162.u[9].z > 9.9999997473787516355514526367188e-06)
+        if (_192.u[9].z > 9.9999997473787516355514526367188e-06)
         {
             float vig = 0.0 + ((((16.0 * pos.x) * pos.y) * (1.0 - pos.x)) * (1.0 - pos.y));
-            vig = pow(vig, _162.u[9].z);
+            vig = pow(vig, _192.u[9].z);
             res *= vec3(vig);
         }
-        if (_162.u[8].y > 9.9999997473787516355514526367188e-06)
+        if (_192.u[8].y > 9.9999997473787516355514526367188e-06)
         {
-            float scans = clamp(0.3499999940395355224609375 + (0.1500000059604644775390625 * sin((2.0 * ((-_162.u[16].z) * _162.u[8].z)) + (((pos.y * float(uint(_162.u[1].x))) * 8.0) / 2.5499999523162841796875))), 0.0, 1.0);
-            float s = pow(scans, _162.u[8].y);
-            s = pow(s, _162.u[8].y);
+            float scans = clamp(0.3499999940395355224609375 + (0.1500000059604644775390625 * sin((2.0 * ((-_192.u[16].z) * _192.u[8].z)) + (((pos.y * float(uint(_192.u[1].x))) * 8.0) / 2.5499999523162841796875))), 0.0, 1.0);
+            float s = pow(scans, _192.u[8].y);
+            s = pow(s, _192.u[8].y);
             res *= vec3(s);
         }
-        res *= (1.0 + (_162.u[9].x * sin(300.0 * _162.u[16].z)));
-        vec2 param_23 = pos + vec2(9.9999997473787516355514526367188e-05 * _162.u[16].z);
-        vec2 param_24 = (pos + vec2(9.9999997473787516355514526367188e-05 * _162.u[16].z)) + vec2(0.300000011920928955078125);
-        vec2 param_25 = (pos + vec2(9.9999997473787516355514526367188e-05 * _162.u[16].z)) + vec2(0.5);
-        res *= (vec3(1.0) - (vec3(rand(param_23), rand(param_24), rand(param_25)) * _162.u[8].w));
+        res *= (1.0 + (_192.u[9].x * sin(300.0 * _192.u[16].z)));
+        vec2 param_23 = pos + vec2(9.9999997473787516355514526367188e-05 * _192.u[16].z);
+        vec2 param_24 = (pos + vec2(9.9999997473787516355514526367188e-05 * _192.u[16].z)) + vec2(0.300000011920928955078125);
+        vec2 param_25 = (pos + vec2(9.9999997473787516355514526367188e-05 * _192.u[16].z)) + vec2(0.5);
+        res *= (vec3(1.0) - (vec3(rand(param_23), rand(param_24), rand(param_25)) * _192.u[8].w));
     }
-    vec2 xy = (TexCoords * _162.u[0].zw) / vec2(_162.u[7].w);
+    vec2 xy = (TexCoords * _192.u[0].zw) / vec2(_192.u[7].w);
     vec2 param_26 = xy;
     float param_27 = CGWG;
     res *= Mask(param_26, param_27);
-    if (_162.u[3].y > 0.5)
+    if (_192.u[3].y > 0.5)
     {
         vec2 param_28 = xy / vec2(2.0);
         res *= mix(slot(param_28), vec3(1.0), vec3(CGWG));
     }
-    res = (res - vec3(_162.u[4].x)) / vec3(1.0 - _162.u[4].x);
+    res = (res - vec3(_192.u[4].x)) / vec3(1.0 - _192.u[4].x);
     vec3 param_29 = res;
     res = l2oklab(param_29);
-    if (_162.u[2].w > 0.5)
+    if (_192.u[2].w > 0.5)
     {
-        float c = cos(_162.u[6].y);
-        float s_1 = sin(_162.u[6].y);
+        float c = cos(_192.u[6].y);
+        float s_1 = sin(_192.u[6].y);
         vec2 ab = vec2(res.y, res.z);
         ab = mat2(vec2(c, -s_1), vec2(s_1, c)) * ab;
         res.y = ab.x;
         res.z = ab.y;
-        vec3 _1594 = res;
-        vec2 _1596 = _1594.yz * _162.u[8].x;
-        res.y = _1596.x;
-        res.z = _1596.y;
-        res.x = ((res.x - 0.5) * _162.u[4].w) + 0.5;
-        res.x *= _162.u[4].z;
+        vec3 _1879 = res;
+        vec2 _1881 = _1879.yz * _192.u[8].x;
+        res.y = _1881.x;
+        res.z = _1881.y;
+        res.x = ((res.x - 0.5) * _192.u[4].w) + 0.5;
+        res.x *= _192.u[4].z;
     }
     else
     {
         res *= hue;
         float slum = dot(vec3(0.2899999916553497314453125, 0.60000002384185791015625, 0.10999999940395355224609375), res);
-        res = mix(vec3(slum), res, vec3(_162.u[8].x));
+        res = mix(vec3(slum), res, vec3(_192.u[8].x));
         float lum = dot(vec3(0.2125999927520751953125, 0.715200006961822509765625, 0.072200000286102294921875), res);
-        float lum2 = ((lum - 0.180000007152557373046875) * _162.u[4].w) + 0.180000007152557373046875;
-        float _1647;
+        float lum2 = ((lum - 0.180000007152557373046875) * _192.u[4].w) + 0.180000007152557373046875;
+        float _1932;
         if (lum > 9.9999999747524270787835121154785e-07)
         {
-            _1647 = lum2 / lum;
+            _1932 = lum2 / lum;
         }
         else
         {
-            _1647 = 0.0;
+            _1932 = 0.0;
         }
-        float scale = _1647;
+        float scale = _1932;
         res *= scale;
         res = clamp(res, vec3(0.0), vec3(1.0));
-        res *= _162.u[4].z;
+        res *= _192.u[4].z;
     }
     FragColor = vec4(res, corn);
     vec3 param_30 = FragColor.xyz;
-    vec3 _1675 = oklab2l(param_30);
-    FragColor.x = _1675.x;
-    FragColor.y = _1675.y;
-    FragColor.z = _1675.z;
-    if (int(_162.u[9].w) != 0)
+    vec3 _1960 = oklab2l(param_30);
+    FragColor.x = _1960.x;
+    FragColor.y = _1960.y;
+    FragColor.z = _1960.z;
+    if (int(_192.u[9].w) != 0)
     {
         vec3 clr = FragColor.xyz;
-        if (int(_162.u[9].w) == 1)
+        if (int(_192.u[9].w) == 1)
         {
             clr *= PAL;
         }
-        if (int(_162.u[9].w) == 2)
+        if (int(_192.u[9].w) == 2)
         {
             clr *= NTSC;
         }
-        if (int(_162.u[9].w) == 3)
+        if (int(_192.u[9].w) == 3)
         {
             clr *= NTSC_J;
         }
@@ -650,22 +746,22 @@ void main()
         FragColor.y = clr.y;
         FragColor.z = clr.z;
     }
-    if (_162.u[16].y > 0.5)
+    if (_192.u[16].y > 0.5)
     {
         vec2 param_31 = TexCoords;
         vec4 param_32 = FragColor;
         FragColor = HalveFrameRate(param_31, param_32);
     }
-    if (_162.u[2].x > 9.9999997473787516355514526367188e-05)
+    if (_192.u[2].x > 9.9999997473787516355514526367188e-05)
     {
         vec2 param_33 = TexCoords;
         vec4 param_34 = FragColor;
-        vec4 _1752 = GenerateGhosting(param_33, param_34);
-        FragColor = _1752;
+        vec4 _2037 = GenerateGhosting(param_33, param_34);
+        FragColor = _2037;
     }
     vec3 param_35 = FragColor.xyz;
-    vec3 _1756 = l2s(param_35);
-    FragColor.x = _1756.x;
-    FragColor.y = _1756.y;
-    FragColor.z = _1756.z;
+    vec3 _2041 = l2s(param_35);
+    FragColor.x = _2041.x;
+    FragColor.y = _2041.y;
+    FragColor.z = _2041.z;
 }
