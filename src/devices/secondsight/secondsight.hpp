@@ -134,6 +134,7 @@ class SecondSight {
     uint8_t *a2_ram = nullptr;
     NClock *clock;
     PPURender ppu;
+    RendererResource renderer_resource;
     SDL_Texture *tex_16bpp = nullptr;
     SDL_Texture *tex_24bpp = nullptr;
     SDL_Texture *tex_text = nullptr;
@@ -686,6 +687,20 @@ class SecondSight {
             } else {
                 SDL_SetTextureScaleMode(tex_text, SDL_SCALEMODE_NEAREST);
             }
+            renderer_resource.register_owner(vs->renderer, [this]() {
+                SDL_DestroyTexture(tex_16bpp); tex_16bpp = nullptr;
+                SDL_DestroyTexture(tex_24bpp); tex_24bpp = nullptr;
+                SDL_DestroyTexture(tex_text); tex_text = nullptr;
+            }, [this](SDL_Renderer* renderer) {
+                tex_16bpp = SDL_CreateTexture(renderer, SDL_PIXELFORMAT_XRGB1555,
+                    SDL_TEXTUREACCESS_TARGET, 800, 600);
+                tex_24bpp = SDL_CreateTexture(renderer, SDL_PIXELFORMAT_RGB24,
+                    SDL_TEXTUREACCESS_STREAMING, SS_MAX_WIDTH, SS_MAX_HEIGHT);
+                tex_text = SDL_CreateTexture(renderer, SDL_PIXELFORMAT_ARGB8888,
+                    SDL_TEXTUREACCESS_STREAMING, VGA_TEXT_SCREEN_W, VGA_TEXT_SCREEN_H);
+                SDL_SetTextureScaleMode(tex_text, SDL_SCALEMODE_NEAREST);
+                // All modes decode their retained guest frame buffer next frame.
+            });
             load_rom_text_fonts();
             display_enabled = true;
             gpu.init(vs);

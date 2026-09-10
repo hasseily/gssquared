@@ -18,6 +18,7 @@
 #pragma once
 
 #include <SDL3/SDL.h>
+#include "display/RendererResource.hpp"
 
 /**
  * @brief A simple asset structure containing a texture and its rectangle.
@@ -48,6 +49,8 @@ class AssetAtlas_t {
 private:
     SDL_Renderer *renderer = nullptr;
     SDL_Texture *image = nullptr;
+    SDL_Surface *source_surface = nullptr;
+    RendererResource renderer_resource;
     int elementCount = 0;
     SDL_FRect *elements = nullptr;
     SDL_FRect default_element;
