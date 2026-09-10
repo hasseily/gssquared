@@ -501,8 +501,8 @@ class Client:
         """MOUNT media at slot/unit (0-based). Prefer an absolute ``path``. Returns MEDIA_* status."""
         if not self._handshaked:
             raise RuntimeError("hello() required before mount()")
-        if unit < 0 or unit > 5:
-            raise ValueError("unit must be 0..5")
+        if unit < 0 or unit > 7:
+            raise ValueError("unit must be 0..7")
         path_b = path.encode("utf-8") if isinstance(path, str) else path
         reply = self.request(MOUNT, struct.pack("<II", slot, unit) + path_b)
         if len(reply) != 4:
@@ -514,8 +514,8 @@ class Client:
         """UNMOUNT media at slot/unit (0-based), discard dirty. Returns MEDIA_* status."""
         if not self._handshaked:
             raise RuntimeError("hello() required before unmount()")
-        if unit < 0 or unit > 5:
-            raise ValueError("unit must be 0..5")
+        if unit < 0 or unit > 7:
+            raise ValueError("unit must be 0..7")
         reply = self.request(UNMOUNT, struct.pack("<II", slot, unit))
         if len(reply) != 4:
             raise ProtocolError(0, f"UNMOUNT reply length {len(reply)}, expected 4")

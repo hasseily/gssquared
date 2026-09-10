@@ -210,6 +210,7 @@ std::optional<device_id> parse_card_type(const std::string& value, std::string& 
         {"second_sight", DEVICE_ID_SECOND_SIGHT},
         {"uthernet2", DEVICE_ID_UTHERNET2},
         {"super_serial", DEVICE_ID_SUPER_SERIAL},
+        {"appletini", DEVICE_ID_APPLETINI},
         {"voc", DEVICE_ID_VOC},
     };
     const std::string canonical = canonical_card_name(value);
@@ -525,6 +526,19 @@ bool SystemConfig::load_settings(const std::string& path, std::string& error_out
     };
 
     for (const auto& [key, value] : entries) {
+        if (key.rfind("appletini.", 0) == 0) {
+            const auto name = key.substr(10);
+            bool* target = name == "ram32" ? &config_data_.appletini.ram32 :
+                name == "ramworks" ? &config_data_.appletini.ramworks : nullptr;
+            if (target) {
+                const auto v = to_lower(value);
+                if (v != "true" && v != "false" && v != "on" && v != "off" && v != "1" && v != "0") {
+                    error_out = "Invalid boolean Appletini setting: " + key; return false;
+                }
+                *target = v == "true" || v == "on" || v == "1";
+                continue;
+            }
+        }
         if (handled_keys.count(key)) {
             continue;
         }

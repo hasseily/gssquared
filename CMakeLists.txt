@@ -767,6 +767,7 @@ if(NOT EMSCRIPTEN)
     add_subdirectory(apps/videoscanregressiontest)
     add_subdirectory(apps/capturetest)
     add_subdirectory(apps/renderresourcetest)
+    add_subdirectory(apps/appletinismartporttest)
 endif()
 
 ################################################################################
