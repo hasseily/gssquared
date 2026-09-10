@@ -22,7 +22,8 @@ and validates HLSL with native Windows DXC. Runtime packages need no shader
 compiler installation.
 
 The browser test serves the real package with COOP/COEP headers, starts an
-Appletini system under Chromium/WebGL2, loads a full effects preset, toggles
+Appletini system under Chromium, Firefox, and Playwright WebKit using WebGL2,
+loads a full effects preset, toggles
 effects, reloads saved settings from IDBFS, checks backing-buffer resizing,
 and exercises `WEBGL_lose_context`. Recovery must preserve RAM and PC, restore
 the settings panel and effects, and produce a nonblank frame. The static
@@ -31,6 +32,7 @@ logs are retained as workflow artifacts.
 The same test uses the canvas controls to select a preset, type a numeric
 value, scroll, save a new preset, cancel and reopen the import picker, import
 a JSON file, and verify the exported browser download.
+Playwright WebKit covers that browser engine; it is not a Safari product test.
 `renderresourcetest` independently replaces the renderer three times and
 compares the exact frame, asset atlas, and font-rendering output.
 
@@ -60,8 +62,8 @@ For a prebuilt Emscripten package:
 
 ```sh
 python3 -m pip install playwright==1.59.0 pillow==11.3.0
-python3 -m playwright install chromium
-python3 scripts/ci/browser_smoke.py --build build-web --output build-web/smoke
+python3 -m playwright install chromium firefox webkit
+python3 scripts/ci/browser_smoke.py --build build-web --browser chromium --output build-web/smoke/chromium
 ```
 
 Native jobs also create and smoke-test the installed macOS app (with a DMG),

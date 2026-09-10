@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Run the packaged Emscripten app in Chromium/WebGL2 with real shader loading.
+"""Run the packaged Emscripten app in a browser with real WebGL2 shader loading.
 
 Requires `pip install playwright==1.59.0 pillow==11.3.0` and
 `python -m playwright install chromium`. Saves screenshots and the console log.
@@ -29,8 +29,9 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--build", type=Path, default=Path("build-web"))
     parser.add_argument("--output", type=Path, default=Path("build-web/smoke"))
+    parser.add_argument("--browser", choices=("chromium", "firefox", "webkit"), default="chromium")
     parser.add_argument("--browser-executable", type=Path,
-                        help="Optional existing Chromium/Chrome executable for local testing")
+                        help="Optional existing executable for the selected browser engine")
     args = parser.parse_args()
     if not (args.build / "GSSquared.html").is_file():
         raise SystemExit("Packaged GSSquared.html missing")
@@ -73,10 +74,12 @@ def main() -> None:
     """
     try:
         with sync_playwright() as playwright:
-            browser = playwright.chromium.launch(
-                executable_path=str(args.browser_executable) if args.browser_executable else None, args=[
+            launch_args = [
                 "--use-gl=angle", "--use-angle=swiftshader", "--enable-unsafe-swiftshader",
-            ])
+            ] if args.browser == "chromium" else []
+            browser = getattr(playwright, args.browser).launch(
+                executable_path=str(args.browser_executable) if args.browser_executable else None,
+                args=launch_args)
             page = browser.new_page(viewport={"width": 1288, "height": 928})
             page.on("console", lambda msg: logs.append(f"{msg.type}: {msg.text}"))
             page.on("pageerror", lambda error: page_errors.append(str(error)))
@@ -223,7 +226,7 @@ def main() -> None:
                 assert max(panel_delta.mean) < 1, "Settings panel textures were not restored intact"
                 assert not page_errors, page_errors
                 assert not any("Postprocessing unavailable" in line or "Postprocessing presentation failed" in line for line in logs), logs
-                print(json.dumps({"backend": version, "preset_persistence": "retained after reload", "context_recovery": "guest state and settings panel retained", "screenshots": str(args.output)}, indent=2))
+                print(json.dumps({"browser": args.browser, "backend": version, "preset_persistence": "retained after reload", "context_recovery": "guest state and settings panel retained", "screenshots": str(args.output)}, indent=2))
             finally:
                 page.screenshot(path=str(args.output / "final-page.png"))
                 browser.close()

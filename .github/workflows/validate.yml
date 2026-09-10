@@ -232,7 +232,7 @@ jobs:
           retention-days: 7
 
   browser:
-    name: Emscripten and Chromium WebGL2
+    name: Emscripten and browser WebGL2
     needs: shaders
     runs-on: ubuntu-24.04
     timeout-minutes: 80
@@ -261,10 +261,18 @@ jobs:
           emcmake cmake -S . -B build-web -DCMAKE_BUILD_TYPE=Release
           cmake --build build-web --target GSSquared --parallel 3
       - name: Browser effects smoke
+        env:
+          LIBGL_ALWAYS_SOFTWARE: '1'
         run: |
           python -m pip install playwright==1.59.0 pillow==11.3.0
-          python -m playwright install --with-deps chromium
-          python scripts/ci/browser_smoke.py
+          python -m playwright install --with-deps chromium firefox webkit
+          failed=0
+          for browser in chromium firefox webkit; do
+            if ! python scripts/ci/browser_smoke.py --browser "$browser" --output "build-web/smoke/$browser"; then
+              failed=1
+            fi
+          done
+          exit "$failed"
       - name: Package the tested browser application
         run: |
           python scripts/ci/package_web.py --build build-web --output dist/gssquared-web.zip

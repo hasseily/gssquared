@@ -134,6 +134,21 @@ int main(int argc,char** argv) {
         require(glass_frame[0]==255&&glass_frame[1]==0&&glass_frame[2]==255,"explicit reload recovers repaired glass");
         require(processor.status().find("could not be loaded")==std::string::npos,"repaired glass clears its error status");
         processor.set_assets("","");draw();std::filesystem::remove_all(temp);
+        // If shader recreation fails but SDL can still draw, recovery must
+        // resume through the plain renderer instead of leaving the app paused.
+        const auto resource_path=gs2_app_values.base_path;
+        gs2_app_values.base_path=(temp/"missing-shaders").string()+"/";
+        processor.settings().preset_name="Recovery fallback";
+        require(processor.recreate(),"plain renderer fallback counts as successful recreation");
+        require(!processor.available(),"missing shaders exercise the plain renderer fallback");
+        require(processor.settings().preset_name=="Recovery fallback","fallback recreation retains effect settings");
+        r=processor.renderer();require(processor.begin_scene(512,384),"plain fallback begins a frame");
+        require(SDL_SetRenderDrawColor(r,23,71,149,255)&&SDL_RenderClear(r),"plain fallback draws");
+        processor.begin_ui(frame);require(processor.present(),"plain fallback presents");
+        gs2_app_values.base_path=resource_path;
+        require(processor.recreate()&&processor.available(),"restored shaders recover the effects renderer");
+        r=processor.renderer();processor.settings()=pp::Settings{};
+        require(draw()==plain,"effects recover after a temporary plain fallback");
         if(benchmark){
             processor.set_vsync(0);processor.settings().p_i_postprocessingLevel=2;
             processor.settings().p_f_phosphorBlur=.5f;processor.settings().p_f_ghostingPercent=50;

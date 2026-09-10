@@ -418,7 +418,9 @@ bool PostProcessor::recreate(){
     impl_.reset();impl_=std::make_unique<Impl>(window);
     impl_->settings=std::move(settings);impl_->requested_bezel=std::move(bezel);
     impl_->requested_glass=std::move(glass);impl_->explicit_assets=explicit_assets;set_vsync(vsync);
-    return available();
+    // A plain SDL renderer still lets the guest and host UI resume after a
+    // context reset. Effects availability is reported separately by status().
+    return impl_->renderer != nullptr;
 }
 bool PostProcessor::set_vsync(int enabled){
     auto& p=*impl_;p.vsync=enabled;
