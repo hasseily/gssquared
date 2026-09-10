@@ -45,6 +45,7 @@ public:
 	void toggleAudioDecorrelation();
 	void toggleRightMouseAccel();
 	void toggleCrtShader();
+	void openEffectsSettings();
 	void toggleHudStats();
 	void toggleHudDrives();
 	void toggleDisconnectedWhenNoGamepad();

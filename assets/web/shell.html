@@ -116,6 +116,24 @@
       // (EEXIST on mkdir / ENOENT on rmdir become no-ops). Emscripten errno:
       // EEXIST = 20, ENOENT = 44.
       preRun: [function () {
+        // Restore effect presets before C++ reads current.json. Other emulator
+        // files remain in MEMFS; only this directory is persisted.
+        addRunDependency('gs2-postprocess-storage');
+        try {
+          FS.mkdirTree('/postprocess');
+          FS.mount(IDBFS, {}, '/postprocess');
+          FS.syncfs(true, function (error) {
+            Module.gs2PostprocessPersistent = !error;
+            Module.gs2PostprocessStorageError = error ?
+              'Browser storage unavailable; export presets to keep them.' : '';
+            removeRunDependency('gs2-postprocess-storage');
+          });
+        } catch (error) {
+          Module.gs2PostprocessPersistent = false;
+          Module.gs2PostprocessStorageError =
+            'Browser storage unavailable; export presets to keep them.';
+          removeRunDependency('gs2-postprocess-storage');
+        }
         var origMkdir = FS.mkdir.bind(FS);
         FS.mkdir = function (path, mode) {
           try { return origMkdir(path, mode); }

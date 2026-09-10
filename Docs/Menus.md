@@ -95,6 +95,7 @@ Capture Mouse - see [Using a Mouse](Mouse.md)
   * Full Screen
   * Second Sight Text
   * CRT Shader
+  * Postprocessing...
   * Hover Enable / Disable
 
 **HUD → Stats** toggles the small performance/stats overlay (off by default).  
@@ -102,7 +103,7 @@ Capture Mouse - see [Using a Mouse](Mouse.md)
 Both are useful when recording video and you want a clean picture. Preferences are remembered in app settings.
 
 **Second Sight Text** (IIgs with a Second Sight card) renders Apple II 40/80-column text through the card’s VGA path. Grayed out if the current machine has no Second Sight. See [Displays](Displays.md).  
-**CRT Shader** applies a GPU CRT effect. Shortcut: **F7**. Available on macOS, Windows, and Linux. See [Displays](Displays.md).
+**CRT Shader** toggles the effects with **F7**. **Postprocessing...** opens the controls and presets with **Shift+F7**. Available on macOS, Windows, Linux and the browser. See [Displays](Displays.md).
 
 ### Sound
   * Sound Effects On/Off

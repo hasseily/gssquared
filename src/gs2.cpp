@@ -46,6 +46,7 @@
 #include "systemconfig.hpp"
 #include "slots.hpp"
 #include "videosystem.hpp"
+#include "display/postprocess/PresetStore.hpp"
 #include "debugger/debugwindow.hpp"
 #include "debugger/DebugProtocolServer.hpp"
 #include "debugger/BreakpointTable.hpp"
@@ -1024,8 +1025,14 @@ void transition_to_emulation(GS2AppState *state, const SystemConfig_t *system_co
     }
 
     run_cpus_init(computer);
-    vs->set_crt_shader_enabled(false, false);
-    if (gs2_app_values.crt_shader_at_boot) vs->set_crt_shader_enabled(true, true);
+    std::string effects_error;
+    if (!gs2::postprocess::load_current_settings(vs->postprocess_settings(), effects_error))
+        SDL_Log("Cannot restore effects settings: %s", effects_error.c_str());
+    if (gs2_app_values.crt_shader_at_boot) vs->postprocess_settings().p_i_postprocessingLevel = 2;
+    vs->postprocess_settings_changed();
+    std::string bezel_path, glass_path;
+    gs2::postprocess::resolve_assets(vs->postprocess_settings(), bezel_path, glass_path);
+    vs->set_postprocess_assets(bezel_path, glass_path);
     state->phase = PHASE_EMULATION;
 }
 

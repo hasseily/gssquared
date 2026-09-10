@@ -300,6 +300,7 @@ static void build_menu_bar()
                 mi->toggleCrtShader();
             if (!crt_avail) ImGui::EndDisabled();
         }
+        if (ImGui::MenuItem("Postprocessing...", "Shift+F7")) mi->openEffectsSettings();
 
         if (!running) ImGui::EndDisabled();
         ImGui::EndMenu();
