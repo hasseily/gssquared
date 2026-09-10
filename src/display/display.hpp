@@ -19,6 +19,7 @@
 
 #include "gs2.hpp"
 #include "videosystem.hpp"
+#include "display/RendererResource.hpp"
 
 #define SCALE_X 2
 #define SCALE_Y 4
@@ -187,6 +188,8 @@ public:
     std::vector<RGBA_t> appletini_legacy_page_b;
     std::vector<RGBA_t> appletini_legacy_pixels;
     std::vector<RGBA_t> appletini_shr_pixels;
+    RendererResource appletini_renderer_resource;
+    uint8_t appletini_last_texture_kind = 0;
     SDL_Texture *appletini_legacy_texture = nullptr;
     SDL_Texture *appletini_shr_texture = nullptr;
 
