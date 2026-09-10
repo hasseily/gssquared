@@ -1377,6 +1377,8 @@ if(EMSCRIPTEN)
         -sSTACK_SIZE=4mb
         -sEXPORTED_RUNTIME_METHODS=ccall,cwrap,FS,stringToNewUTF8,UTF8ToString
         -sFORCE_FILESYSTEM=1
+        -sMIN_WEBGL_VERSION=2
+        -sMAX_WEBGL_VERSION=2
         --preload-file ${GS2_WEB_PRELOAD}
         --shell-file ${CMAKE_SOURCE_DIR}/assets/web/shell.html
     )
