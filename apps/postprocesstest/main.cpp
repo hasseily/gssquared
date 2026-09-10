@@ -55,7 +55,7 @@ static bool check(PostProcessor& processor,int width,int height,bool enabled) {
     if(result)SDL_DestroySurface(result);
     SDL_DestroyTexture(texture);
     // The CRT uses trigonometric floats; allow at most two 8-bit levels.
-    okay=okay&&worst<=2;
+    okay=okay&&worst<=(enabled?2:0);
     std::printf("%dx%d CRT %s: %s (maximum channel error %d)\n",width,height,enabled?"on":"off",okay?"PASS":"FAIL",worst);
     return okay;
 }
