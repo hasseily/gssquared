@@ -21,6 +21,7 @@
 #include "Device_ID.hpp"
 #include "NClock.hpp"
 #include "devices/displaypp/VideoScanner.hpp"
+#include "devices/pdblock3/AppletiniConfig.hpp"
 
 /**
  * a System Configuraiton is a platform, and, a list of devices and their slots.
@@ -36,6 +37,7 @@ struct SystemConfig_t {
     const char *description;
     const char *id;  // machine identity (UUID); keys PrefPath/bram/<id>.bin
     device_id slot_devices[NUM_SLOTS];
+    AppletiniConfig appletini;
 };
 
 extern SystemConfig_t BuiltinSystemConfigs[];

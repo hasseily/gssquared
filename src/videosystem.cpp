@@ -181,7 +181,8 @@ video_system_t::video_system_t(computer_t *computer) {
             // history. Mode/decoder changes start a new phosphor history.
             uint64_t mode=uint64_t(ds->display_mode)|(uint64_t(ds->display_split_mode)<<4)|
                 (uint64_t(ds->display_graphics_mode)<<8)|(uint64_t(ds->f_80col)<<12)|
-                (uint64_t(ds->f_double_graphics)<<13)|(uint64_t(ds->new_video)<<16);
+                (uint64_t(ds->f_double_graphics)<<13)|(uint64_t(ds->new_video)<<16)|
+                (uint64_t(ds->appletini_video_enabled)<<24);
             if(mode!=last_render_mode){reset_postprocess_history();last_render_mode=mode;}
         }
         return false;

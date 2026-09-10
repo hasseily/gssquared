@@ -21,6 +21,11 @@
 #include <string>
 #include <unordered_map>
 #include <vector>
+#include <memory>
+#include "devices/pdblock3/AppletiniSmartPort.hpp"
+#include "devices/pdblock3/AppletiniSpeedControl.hpp"
+#include "devices/pdblock3/AppletiniRamWorksConfig.hpp"
+#include "devices/iiememory/iiememory.hpp"
 #include "gs2.hpp"
 #include "cpu.hpp"
 #include "mmus/mmu_ii.hpp"
@@ -34,10 +39,13 @@
 class PDBlock3; // forward declaration
 
 struct pdblock3_data: public SlotData {
-    ResourceFile *rom;
+    ResourceFile *slot_rom;
+    ResourceFile *c8_rom;
     MMU *mmu;
     MMU_II *megaii;
     PDBlock3 *pdb;
+    computer_t *computer = nullptr;
+    AppletiniSpeedControl appletini_speed;
 };
 
 class PDBlock3 : public StorageDevice {
@@ -53,6 +61,11 @@ private:
     bool disk_switched[PDB3_MAX_UNITS];
     media_t drives[PDB3_MAX_UNITS];
     uint8_t _slot;
+
+    std::unique_ptr<AppletiniSmartPort> appletini;
+    uint8_t max_devices = PDB3_MAX_DEVICES;
+    uint8_t max_units = PDB3_MAX_UNITS;
+    bool configured_units[AppletiniSmartPort::max_units]{};
 
     std::unordered_map<storage_key_t, key_info_t> key_info;
 
@@ -91,14 +104,15 @@ private:
     }
 
 public:
-    PDBlock3(uint8_t slot, MMU *mmu) : _slot(slot), mmu(mmu) {
+    PDBlock3(uint8_t slot, MMU *mmu, bool is_appletini = false) : _slot(slot), mmu(mmu) {
+        if (is_appletini) max_devices = max_units = AppletiniSmartPort::max_units;
         for (int j = 0; j < PDB3_MAX_UNITS; j++) {
             drives[j].file = nullptr;
             drives[j].media = nullptr;
             disk_switched[j] = false;
         }
-        // initialize key_info for all 6 devices
-        for (int j = 0; j < 6; j++) {
+        // Initialize every registered host drive.
+        for (int j = 0; j < max_devices; j++) {
             storage_key_t key;
             key.drive = j;
             key.slot = _slot;
@@ -111,6 +125,54 @@ public:
         cmd_buffer.status2 = 0x00;
     }
 
+    void configure_appletini(bool ram32) {
+        appletini = std::make_unique<AppletiniSmartPort>(_slot,
+            [this](uint8_t unit) {
+                const media_t& drive = drives[unit];
+                const bool present = drive.file && drive.media;
+                return AppletiniSmartPort::Unit{present,
+                    present ? drive.media->block_count : 0,
+                    present && drive.media->write_protected, configured_units[unit]};
+            },
+            [this](uint8_t unit, uint32_t block, uint8_t* data) {
+                return appletini_transfer(unit, block, data, false);
+            },
+            [this](uint8_t unit, uint32_t block, const uint8_t* data) {
+                return appletini_transfer(unit, block, const_cast<uint8_t*>(data), true);
+            });
+        appletini->enable_ramdisk(ram32);
+    }
+    void appletini_data_write(uint8_t data) { appletini->data_write(data); }
+    uint8_t appletini_data_read() const { return appletini->data_read(); }
+    void appletini_data_pop() { appletini->pop(); }
+    uint8_t appletini_ctrl_read() const { return appletini->control_read(); }
+    void appletini_ctrl_write(uint8_t family) { appletini->execute(family); }
+
+private:
+    uint8_t appletini_transfer(uint8_t unit, uint32_t block, uint8_t* data, bool write) {
+        media_t& drive = drives[unit];
+        if (!drive.file || !drive.media) return AppletiniSmartPort::no_device;
+        if (drive.media->block_size != 512 || block >= drive.media->block_count)
+            return AppletiniSmartPort::io_error;
+        if (write && drive.media->write_protected) return AppletiniSmartPort::no_write;
+        const uint64_t offset = drive.media->data_offset + uint64_t{block} * 512;
+#ifdef _WIN32
+        const int seek_result = _fseeki64(drive.file, static_cast<int64_t>(offset), SEEK_SET);
+#else
+        const int seek_result = fseeko(drive.file, static_cast<off_t>(offset), SEEK_SET);
+#endif
+        if (seek_result != 0)
+            return AppletiniSmartPort::io_error;
+        const size_t bytes = write ? fwrite(data, 1, 512, drive.file)
+                                   : fread(data, 1, 512, drive.file);
+        if (bytes != 512 || (write && fflush(drive.file) != 0)) return AppletiniSmartPort::io_error;
+        drive.last_block_accessed = block;
+        drive.last_block_access_time = SDL_GetTicksNS();
+        key_info[drive.key].last_active_unit = unit;
+        return AppletiniSmartPort::ok;
+    }
+
+public:
     ~PDBlock3() {
         for (int j = 0; j < PDB3_MAX_UNITS; j++) {
             if (drives[j].file) {
@@ -454,7 +516,7 @@ public:
         return true;
     }
 
-    /* BazFast is a SmartPort block device, so it only speaks 512-byte blocks.
+    /* These SmartPort block devices only speak 512-byte blocks.
        140K is additionally rejected even when it is block-structured (a 140K
        .hdv is 280 blocks of 512): ProDOS assumes anything that size is a Disk II
        on a 5.25 controller, and misdrives it. Those belong in a 5.25 drive. */
@@ -490,9 +552,15 @@ public:
         return false;
     }
 
-    bool mount(storage_key_t key, std::vector<media_descriptor *> media_list) {
+    void prepare_mount(storage_key_t key) override {
+        if (appletini && key.drive < max_devices) configured_units[key.drive] = true;
+    }
+
+    bool mount(storage_key_t key, std::vector<media_descriptor *> media_list) override {
         if (media_list.empty()) return false;
-        if (key.drive >= PDB3_MAX_DEVICES) return false;
+        if (key.drive >= max_devices) return false;
+
+        prepare_mount(key);
 
         // Vet every volume before opening any of them, so a bad entry in a
         // .pmap can't leave us with a half-populated set of units.
@@ -503,33 +571,33 @@ public:
         for (size_t i = 0; i < media_list.size(); i++) {
             const media_descriptor *media = media_list[i];
             if (const char *why = media_reject_reason(media)) {
-                std::cerr << "BazFast: refusing '" << media->filename << "': " << why << std::endl;
+                std::cerr << "SmartPort: refusing '" << media->filename << "': " << why << std::endl;
                 return false;
             }
             if (host_file_already_mounted(media->filename)) {
-                std::cerr << "BazFast: refusing '" << media->filename << "': already mounted" << std::endl;
+                std::cerr << "SmartPort: refusing '" << media->filename << "': already mounted" << std::endl;
                 return false;
             }
             for (size_t k = 0; k < i; k++) {
                 if (same_host_file(media_list[k]->filename, media->filename) &&
                     media_list[k]->data_offset == media->data_offset) {
-                    std::cerr << "BazFast: refusing '" << media->filename << "': already mounted" << std::endl;
+                    std::cerr << "SmartPort: refusing '" << media->filename << "': already mounted" << std::endl;
                     return false;
                 }
             }
         }
 
-        int unused_unit = 0;
+        int unused_unit = appletini ? key.drive : 0;
         int first_mounted_unit = -1;
         std::vector<int> assigned;
         const size_t tooltip_before = key_info[key].tooltip.size();
         for (media_descriptor *media : media_list) {
             // find unused unit
-            while (unused_unit < PDB3_MAX_UNITS) {
+            while (unused_unit < max_units) {
                 if (drives[unused_unit].file == nullptr) break;
                 unused_unit++;
             }
-            if (unused_unit == PDB3_MAX_UNITS) {
+            if (unused_unit == max_units) {
                 for (int u : assigned) {
                     release_file(drives[u].file);
                     drives[u].file = nullptr;
@@ -584,8 +652,9 @@ public:
 
     // unmount all units that have a matching key
     // clear the tooltip vector for this key
-    bool unmount(storage_key_t key) {
-        if (key.drive >= PDB3_MAX_DEVICES) return true;
+    bool unmount(storage_key_t key) override {
+        if (key.drive >= max_devices) return true;
+        if (appletini) configured_units[key.drive] = false;
 
         for (int i = 0; i < PDB3_MAX_UNITS; i++) {
             if (drives[i].key == key) {
@@ -610,7 +679,7 @@ public:
         return true;
     }
 
-    bool writeback(storage_key_t key) {
+    bool writeback(storage_key_t key) override {
         return true;
     }
 
@@ -637,7 +706,9 @@ public:
                 seldrive.media->write_protected};
     }
 
-    drive_status_t status(storage_key_t key) {
+    drive_status_t status(storage_key_t key) override {
+        if (appletini && appletini->ramdisk_unit() == key.drive)
+            return {true, "RAM32 (volatile)", false, 0, false, false};
         if (key.drive >= PDB3_MAX_UNITS) {  
             return {false, "", false, 0, false, false};
         }
@@ -680,6 +751,7 @@ public:
     
     void reset() {
         cmd_buffer.index = 0;
+        if (appletini) appletini->reset();
     }
     void put(uint8_t data) {
         if (cmd_buffer.index < MAX_PD_BUFFER_SIZE) {
@@ -756,44 +828,86 @@ uint8_t pdblock3_read_C0x0(void *context, uint32_t addr) {
     } else return 0xE0;
 }
 
+uint8_t appletini_read_CFxx(void *context, uint32_t addr) {
+    pdblock3_data *pdblock_d = (pdblock3_data *)context;
+    const uint8_t reg = addr & 0xFF;
+
+    if (reg == 0xF0) return pdblock_d->pdb->appletini_data_read();
+    if (reg == 0xF1) return pdblock_d->pdb->appletini_ctrl_read();
+    if (reg == 0xF2) return pdblock_d->mmu->floating_bus_read();
+    return pdblock_d->c8_rom->get_data()[addr - 0xC800];
+}
+
+void appletini_write_CFxx(void *context, uint32_t addr, uint8_t data) {
+    pdblock3_data *pdblock_d = (pdblock3_data *)context;
+    const uint8_t reg = addr & 0xFF;
+
+    if (reg == 0xF0) {
+        pdblock_d->pdb->appletini_data_write(data);
+    } else if (reg == 0xF1) {
+        pdblock_d->pdb->appletini_ctrl_write(data);
+    } else if (reg == 0xF2) {
+        pdblock_d->pdb->appletini_data_pop();
+    }
+}
+
+void appletini_write_C074(void *context, uint32_t addr, uint8_t data) {
+    (void)addr;
+    pdblock3_data *pdblock_d = (pdblock3_data *)context;
+    computer_t *computer = pdblock_d->computer;
+    NClockII *clock = computer->clock;
+
+    const AppletiniSpeedTransition transition = pdblock_d->appletini_speed.write(
+        data, clock->get_clock_mode(), clock->get_cpu_per_14m());
+    if (!transition.apply) return;
+
+    clock->set_clock_mode(transition.mode);
+    if (transition.restore_cpu_per_14m) {
+        clock->set_cpu_per_14m(transition.cpu_per_14m);
+    }
+
+    display_state_t *display = (display_state_t *)computer->get_module_state(MODULE_DISPLAY);
+    if (display != nullptr) display_update_video_scanner(display);
+}
+
 
 void map_rom_pdblock3(void *context, SlotType_t slot) {
     pdblock3_data * pdblock_d = (pdblock3_data *)context;
 
-    uint8_t *dp = pdblock_d->rom->get_data();
+    uint8_t *dp = pdblock_d->c8_rom->get_data();
     for (uint8_t page = 0; page < 8; page++) {
-        pdblock_d->megaii->map_c1cf_page_read_only(page + 0xC8, dp + (page * 0x100), "PDB3_ROM");
+        pdblock_d->megaii->map_c1cf_page_read_only(
+            page + 0xC8, dp + (page * 0x100), "PDB3_ROM");
     }
     if (DEBUG(DEBUG_PD_BLOCK)) {
         printf("mapped in PDB3 $C800-$CFFF\n");
     }
 }
 
-void init_pdblock3(computer_t *computer, SlotType_t slot)
-{
-    if (DEBUG(DEBUG_PD_BLOCK)) std::cout << "Initializing PDB3 slot " << slot << std::endl;
-    pdblock3_data * pdblock_d = new pdblock3_data;
-    pdblock_d->id = DEVICE_ID_PD_BLOCK2;
-    
-    pdblock_d->mmu = computer->cpu->mmu;
-    pdblock_d->megaii = computer->mmu; // these could be the same (iie) or different (iigs)
-    pdblock_d->_slot = slot;
+void map_rom_appletini(void *context, SlotType_t slot) {
+    pdblock3_data * pdblock_d = (pdblock3_data *)context;
 
-    pdblock_d->rom = new ResourceFile("roms/cards/pdblock3/pdblock3.rom", READ_ONLY);
-    if (pdblock_d->rom == nullptr) {
-        std::cerr << "Failed to load pdblock3.rom" << std::endl;
-        return;
+    uint8_t *dp = pdblock_d->c8_rom->get_data();
+    for (uint8_t page = 0; page < 7; page++) {
+        pdblock_d->megaii->map_c1cf_page_read_only(
+            page + 0xC8, dp + (page * 0x100), "APPLETINI_C8_ROM");
     }
-    pdblock_d->rom->load();
+    /* $CF00-$CFEF remains ROM, while $CFF0-$CFF2 is the Appletini FIFO.
+       A page handler lets the two ranges share the final expansion page. */
+    pdblock_d->megaii->map_c1cf_page_both(0xCF, nullptr, "APPLETINI_C8_IO");
+    pdblock_d->megaii->map_c1cf_page_read_h(
+        0xCF, { appletini_read_CFxx, pdblock_d }, "APPLETINI_C8_IO");
+    pdblock_d->megaii->map_c1cf_page_write_h(
+        0xCF, { appletini_write_CFxx, pdblock_d }, "APPLETINI_C8_IO");
+    if (DEBUG(DEBUG_PD_BLOCK)) {
+        printf("mapped in Appletini $C800-$CFFE\n");
+    }
+}
 
-    // memory-map the page. Refactor to have a method to get and set memory map.
-    uint8_t *rom_data = (uint8_t *)(pdblock_d->rom->get_data());
-
-    // register slot ROM
-    computer->mmu->set_slot_rom(slot, rom_data, "PDBLK_ROM");
-
-    // register drives with mounts for status reporting
-    PDBlock3 *pd3 = new PDBlock3(slot, pdblock_d->mmu);
+static void register_smartport_drives(computer_t *computer, SlotType_t slot,
+                                      pdblock3_data *pdblock_d) {
+    const bool is_appletini = pdblock_d->id == DEVICE_ID_APPLETINI;
+    PDBlock3 *pd3 = new PDBlock3(slot, pdblock_d->mmu, is_appletini);
     pdblock_d->pdb = pd3;
 
     storage_key_t key;
@@ -801,18 +915,115 @@ void init_pdblock3(computer_t *computer, SlotType_t slot)
     key.drive = 0;
     key.partition = 0;
     key.subunit = 0;
-    for (key.drive = 0; key.drive < 6; key.drive++) {
+    for (key.drive = 0; key.drive < (is_appletini ? 8 : PDB3_MAX_DEVICES); key.drive++) {
         computer->mounts->register_storage_device(key, pd3, DRIVE_TYPE_PRODOS_BLOCK);
     }
+}
 
-    // register.. uh, registers.
-    computer->mmu->set_C0XX_write_handler((slot * 0x10) + PD_CMD_RESET, { pdblock3_write_C0x0, pdblock_d });
-    computer->mmu->set_C0XX_write_handler((slot * 0x10) + PD_CMD_PUT, { pdblock3_write_C0x0, pdblock_d });
-    computer->mmu->set_C0XX_write_handler((slot * 0x10) + PD_CMD_EXECUTE, { pdblock3_write_C0x0, pdblock_d });
-    computer->mmu->set_C0XX_read_handler((slot * 0x10) + PD_ERROR_GET, { pdblock3_read_C0x0, pdblock_d });
-    computer->mmu->set_C0XX_read_handler((slot * 0x10) + PD_STATUS1_GET, { pdblock3_read_C0x0, pdblock_d });
-    computer->mmu->set_C0XX_read_handler((slot * 0x10) + PD_STATUS2_GET, { pdblock3_read_C0x0, pdblock_d });
+void init_pdblock3(computer_t *computer, SlotType_t slot)
+{
+    if (DEBUG(DEBUG_PD_BLOCK)) std::cout << "Initializing PDB3 slot " << slot << std::endl;
+    pdblock3_data * pdblock_d = new pdblock3_data;
+    pdblock_d->id = DEVICE_ID_PD_BLOCK3;
     
-    computer->mmu->set_C8xx_handler(slot, map_rom_pdblock3, pdblock_d);
+    pdblock_d->mmu = computer->cpu->mmu;
+    pdblock_d->megaii = computer->mmu; // these could be the same (iie) or different (iigs)
+    pdblock_d->_slot = slot;
 
+    pdblock_d->slot_rom = new ResourceFile(
+        "roms/cards/pdblock3/pdblock3.rom", READ_ONLY);
+    pdblock_d->c8_rom = pdblock_d->slot_rom;
+    pdblock_d->slot_rom->load();
+    if (pdblock_d->slot_rom->size() != 0x800) {
+        throw std::runtime_error("BazFast 3 ROM has the wrong size");
+    }
+
+    uint8_t *rom_data = (uint8_t *)(pdblock_d->slot_rom->get_data());
+    computer->mmu->set_slot_rom(slot, rom_data, "PDBLK_ROM");
+
+    register_smartport_drives(computer, slot, pdblock_d);
+
+    computer->mmu->set_C0XX_write_handler(
+        (slot * 0x10) + PD_CMD_RESET, { pdblock3_write_C0x0, pdblock_d });
+    computer->mmu->set_C0XX_write_handler(
+        (slot * 0x10) + PD_CMD_PUT, { pdblock3_write_C0x0, pdblock_d });
+    computer->mmu->set_C0XX_write_handler(
+        (slot * 0x10) + PD_CMD_EXECUTE, { pdblock3_write_C0x0, pdblock_d });
+    computer->mmu->set_C0XX_read_handler(
+        (slot * 0x10) + PD_ERROR_GET, { pdblock3_read_C0x0, pdblock_d });
+    computer->mmu->set_C0XX_read_handler(
+        (slot * 0x10) + PD_STATUS1_GET, { pdblock3_read_C0x0, pdblock_d });
+    computer->mmu->set_C0XX_read_handler(
+        (slot * 0x10) + PD_STATUS2_GET, { pdblock3_read_C0x0, pdblock_d });
+
+    computer->mmu->set_C8xx_handler(slot, map_rom_pdblock3, pdblock_d);
+}
+
+void init_appletini(computer_t *computer, SlotType_t slot)
+{
+    if (DEBUG(DEBUG_PD_BLOCK)) std::cout << "Initializing Appletini slot " << slot << std::endl;
+    pdblock3_data * pdblock_d = new pdblock3_data;
+    pdblock_d->id = DEVICE_ID_APPLETINI;
+    pdblock_d->computer = computer;
+
+    pdblock_d->mmu = computer->cpu->mmu;
+    pdblock_d->megaii = computer->mmu;
+    pdblock_d->_slot = slot;
+
+    pdblock_d->slot_rom = new ResourceFile(
+        "roms/cards/pdblock3/appletini_c700.rom", READ_ONLY);
+    pdblock_d->c8_rom = new ResourceFile(
+        "roms/cards/pdblock3/appletini_c800.rom", READ_ONLY);
+    pdblock_d->slot_rom->load();
+    pdblock_d->c8_rom->load();
+    if (pdblock_d->slot_rom->size() != 0x100 ||
+        pdblock_d->c8_rom->size() != 0x800) {
+        throw std::runtime_error("Appletini SmartPort ROM has the wrong size");
+    }
+
+    // memory-map the page. Refactor to have a method to get and set memory map.
+    uint8_t *rom_data = (uint8_t *)(pdblock_d->slot_rom->get_data());
+
+    // register slot ROM
+    computer->mmu->set_slot_rom(slot, rom_data, "APPLETINI_SLOT_ROM");
+
+    register_smartport_drives(computer, slot, pdblock_d);
+
+    const SystemConfig_t *config = computer->get_system();
+    if (config != nullptr && should_enable_appletini_ramworks(*config)
+        && !iiememory_enable_appletini_ramworks(computer)) {
+        throw std::runtime_error("Appletini could not initialize its 8MB RamWorks expansion");
+    }
+    computer->mmu->set_C0XX_write_handler(
+        0xC074, { appletini_write_C074, pdblock_d });
+    computer->mmu->set_C8xx_handler(slot, map_rom_appletini, pdblock_d);
+
+    const AppletiniConfig settings = config ? config->appletini : AppletiniConfig{};
+    pdblock_d->pdb->configure_appletini(settings.ram32);
+    pdblock_d->appletini_speed.configure(settings.accelerator, settings.ignore_c074);
+    if (settings.accelerator) computer->clock->set_clock_mode(settings.speed);
+    computer->register_reset_handler([pdblock_d](bool) {
+        pdblock_d->pdb->reset();
+        const auto transition = pdblock_d->appletini_speed.reset();
+        if (transition.apply) {
+            auto* clock = pdblock_d->computer->clock;
+            clock->set_clock_mode(transition.mode);
+            if (transition.restore_cpu_per_14m) clock->set_cpu_per_14m(transition.cpu_per_14m);
+            auto* display = static_cast<display_state_t*>(
+                pdblock_d->computer->get_module_state(MODULE_DISPLAY));
+            if (display) display_update_video_scanner(display);
+        }
+        return true;
+    });
+    computer->register_shutdown_handler([pdblock_d]() {
+        delete pdblock_d->pdb;
+        delete pdblock_d->slot_rom;
+        delete pdblock_d->c8_rom;
+        delete pdblock_d;
+        return true;
+    });
+    display_enable_appletini_video(computer);
+    auto *display = static_cast<display_state_t *>(
+        computer->get_module_state(MODULE_DISPLAY));
+    if (display != nullptr) display_update_video_scanner(display);
 }

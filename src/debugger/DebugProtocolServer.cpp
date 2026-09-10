@@ -126,7 +126,7 @@ constexpr uint32_t kMediaMountFailed   = 2;
 constexpr uint32_t kMediaUnmountFailed = 3;
 constexpr uint32_t kMediaBadPath       = 4;
 constexpr uint32_t kMaxMediaPathLen    = 4096;
-constexpr uint32_t kMaxMediaUnit       = 5;
+constexpr uint32_t kMaxMediaUnit       = 7;
 
 constexpr uint32_t kMemMain    = 0;
 constexpr uint32_t kMemMegaII  = 1;
@@ -165,7 +165,7 @@ void shutdown_socket(DebugSocketHandle fd) {
         ::shutdown(native_socket(fd), SD_BOTH);
     }
 }
-#else
+#elif GS2_DEBUG_PROTO_UNIX
 void close_socket(DebugSocketHandle fd) {
     if (fd != kInvalidSocket) {
         ::close(static_cast<int>(fd));
