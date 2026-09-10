@@ -162,8 +162,9 @@ jobs:
           name: native-${{ matrix.runner }}
           # The DMG already contains the executable, resources and frameworks.
           # Downloaded test binaries use those paths from a mounted DMG.
+          # CPack staging includes an Applications symlink; never recurse into it.
           path: |
-            dist/
+            dist/*.dmg
             build/ctest.xml
             build/Testing/Temporary/
             build/smoke/
