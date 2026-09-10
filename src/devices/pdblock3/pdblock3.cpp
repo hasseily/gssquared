@@ -23,6 +23,8 @@
 #include <vector>
 #include <memory>
 #include "devices/pdblock3/AppletiniSmartPort.hpp"
+#include "devices/displaypp/generate/AppletiniTextOverlay.hpp"
+#include "devices/pdblock3/AppletiniSpeedControl.hpp"
 #include "devices/pdblock3/AppletiniRamWorksConfig.hpp"
 #include "devices/iiememory/iiememory.hpp"
 #include "gs2.hpp"
@@ -43,6 +45,8 @@ struct pdblock3_data: public SlotData {
     MMU *mmu;
     MMU_II *megaii;
     PDBlock3 *pdb;
+    computer_t *computer = nullptr;
+    AppletiniSpeedControl appletini_speed;
 };
 
 class PDBlock3 : public StorageDevice {
@@ -848,6 +852,26 @@ void appletini_write_CFxx(void *context, uint32_t addr, uint8_t data) {
     }
 }
 
+void appletini_write_C074(void *context, uint32_t addr, uint8_t data) {
+    (void)addr;
+    pdblock3_data *pdblock_d = (pdblock3_data *)context;
+    computer_t *computer = pdblock_d->computer;
+    NClockII *clock = computer->clock;
+
+    const AppletiniSpeedTransition transition = pdblock_d->appletini_speed.write(
+        data, clock->get_clock_mode(), clock->get_cpu_per_14m());
+    if (!transition.apply) return;
+
+    clock->set_clock_mode(transition.mode);
+    if (transition.restore_cpu_per_14m) {
+        clock->set_cpu_per_14m(transition.cpu_per_14m);
+    }
+
+    display_state_t *display = (display_state_t *)computer->get_module_state(MODULE_DISPLAY);
+    if (display != nullptr) display_update_video_scanner(display);
+}
+
+
 void map_rom_pdblock3(void *context, SlotType_t slot) {
     pdblock3_data * pdblock_d = (pdblock3_data *)context;
 
@@ -941,6 +965,7 @@ void init_appletini(computer_t *computer, SlotType_t slot)
     if (DEBUG(DEBUG_PD_BLOCK)) std::cout << "Initializing Appletini slot " << slot << std::endl;
     pdblock3_data * pdblock_d = new pdblock3_data;
     pdblock_d->id = DEVICE_ID_APPLETINI;
+    pdblock_d->computer = computer;
 
     pdblock_d->mmu = computer->cpu->mmu;
     pdblock_d->megaii = computer->mmu;
@@ -970,12 +995,25 @@ void init_appletini(computer_t *computer, SlotType_t slot)
         && !iiememory_enable_appletini_ramworks(computer)) {
         throw std::runtime_error("Appletini could not initialize its 8MB RamWorks expansion");
     }
+    computer->mmu->set_C0XX_write_handler(
+        0xC074, { appletini_write_C074, pdblock_d });
     computer->mmu->set_C8xx_handler(slot, map_rom_appletini, pdblock_d);
 
     const AppletiniConfig settings = config ? config->appletini : AppletiniConfig{};
     pdblock_d->pdb->configure_appletini(settings.ram32);
+    pdblock_d->appletini_speed.configure(settings.accelerator, settings.ignore_c074);
+    if (settings.accelerator) computer->clock->set_clock_mode(settings.speed);
     computer->register_reset_handler([pdblock_d](bool) {
         pdblock_d->pdb->reset();
+        const auto transition = pdblock_d->appletini_speed.reset();
+        if (transition.apply) {
+            auto* clock = pdblock_d->computer->clock;
+            clock->set_clock_mode(transition.mode);
+            if (transition.restore_cpu_per_14m) clock->set_cpu_per_14m(transition.cpu_per_14m);
+            auto* display = static_cast<display_state_t*>(
+                pdblock_d->computer->get_module_state(MODULE_DISPLAY));
+            if (display) display_update_video_scanner(display);
+        }
         return true;
     });
     computer->register_shutdown_handler([pdblock_d]() {
@@ -985,4 +1023,9 @@ void init_appletini(computer_t *computer, SlotType_t slot)
         delete pdblock_d;
         return true;
     });
+    init_appletini_text_overlay(computer);
+    display_enable_appletini_video(computer);
+    auto *display = static_cast<display_state_t *>(
+        computer->get_module_state(MODULE_DISPLAY));
+    if (display != nullptr) display_update_video_scanner(display);
 }

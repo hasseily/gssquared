@@ -150,6 +150,7 @@ class MMU_IIgs : public MMU {
                     idx = 0x1'0000 | iigs_aux_linear_to_phys((uint16_t)idx);
                 }
                 megaii->get_memory_base()[idx] = value;
+                megaii->notify_ram_write(address & 0x1FFFF, value);
             } else {
                 megaii->write(address & 0xFFFF, value);
             }

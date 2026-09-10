@@ -1,0 +1,6 @@
+profile.name Appletini migration
+machine APPLE2E
+slot7 appletini
+machine.speed 2800000
+appletini.ram32 true
+appletini.ignorec074 on

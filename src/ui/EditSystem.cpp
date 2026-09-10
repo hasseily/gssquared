@@ -216,11 +216,17 @@ EditSystem::EditSystem(video_system_t *vs, AssetAtlas_t *aa)
     speed_con = new Container_t(&ui_ctx, SC);
     speed_con->set_position(30 + layout_dx, 480 + body_dy);
     speed_con->size(320, 65);
+    speed_con->set_padding(1);
     populate_speed_selector(speed_con, &ui_ctx, CB);
     for (size_t i = 0; i < speed_con->count(); i++) {
         Tile_t *tile = speed_con->get_tile(i);
         tile->on_click([this, tile](const SDL_Event&) -> bool {
             speed_con->selected_value(tile->value());
+            if (draft.config().slot_devices[SLOT_7] == DEVICE_ID_APPLETINI) {
+                draft.config().appletini.speed = static_cast<clock_mode_t>(tile->value());
+                draft.config().appletini.accelerator = true;
+                appletini_con->get_tile(0)->set_active(true);
+            }
             updated = true;
             return true;
         });
@@ -242,13 +248,14 @@ EditSystem::EditSystem(video_system_t *vs, AssetAtlas_t *aa)
     appletini_con = new Container_t(&ui_ctx, SC);
     appletini_con->set_position(360 + layout_dx, 625 + body_dy);
     appletini_con->size(230, 136);
-    const char* option_names[] = {"RAM32 disk", "8 MB RamWorks"};
-    for (int i = 0; i < 2; ++i) {
+    const char* option_names[] = {"Accelerator", "Ignore C074", "8 MB RamWorks", "RAM32 disk"};
+    for (int i = 0; i < 4; ++i) {
         auto* toggle = new SelectButton_t(&ui_ctx, option_names[i], CB, i);
         toggle->size(218, 28);
         toggle->on_click([this, i, toggle](const SDL_Event&) {
             auto& a = draft.config().appletini;
-            bool* setting = i == 0 ? &a.ram32 : &a.ramworks;
+            bool* setting = i == 0 ? &a.accelerator : i == 1 ? &a.ignore_c074 :
+                            i == 2 ? &a.ramworks : &a.ram32;
             *setting = !*setting;
             toggle->set_active(*setting);
             updated = true;
@@ -415,8 +422,10 @@ void EditSystem::rebuild_ui_from_draft() {
     }
     platform_con->selected_value(draft.config().platform_id);
     const auto& a = draft.config().appletini;
-    const bool options[] = {a.ram32, a.ramworks};
-    for (int i = 0; i < 2; ++i) appletini_con->get_tile(i)->set_active(options[i]);
+    const bool options[] = {a.accelerator, a.ignore_c074, a.ramworks, a.ram32};
+    for (int i = 0; i < 4; ++i) appletini_con->get_tile(i)->set_active(options[i]);
+    if (draft.config().slot_devices[SLOT_7] == DEVICE_ID_APPLETINI)
+        speed_con->selected_value(a.speed);
     refresh_badge();
     updated = true;
 }
@@ -728,7 +737,8 @@ void EditSystem::render() {
     text_renderer->render("Slots", 30 + layout_dx, 120 + body_dy, TEXT_ALIGN_LEFT);
     text_renderer->render("Serial", 360 + layout_dx, 120 + body_dy, TEXT_ALIGN_LEFT);
     text_renderer->render("Storage (pre-mount)", 600 + layout_dx, 120 + body_dy, TEXT_ALIGN_LEFT);
-    text_renderer->render("Speed (not saved)", 30 + layout_dx, 455 + body_dy, TEXT_ALIGN_LEFT);
+    text_renderer->render(draft.config().slot_devices[SLOT_7] == DEVICE_ID_APPLETINI
+        ? "Appletini speed (saved)" : "Speed (not saved)", 30 + layout_dx, 455 + body_dy, TEXT_ALIGN_LEFT);
     text_renderer->render("Display (not saved)", 30 + layout_dx, 550 + body_dy, TEXT_ALIGN_LEFT);
     if (draft.config().slot_devices[SLOT_7] == DEVICE_ID_APPLETINI)
         text_renderer->render("Appletini options", 360 + layout_dx, 600 + body_dy, TEXT_ALIGN_LEFT);

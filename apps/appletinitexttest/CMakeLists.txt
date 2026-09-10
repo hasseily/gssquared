@@ -1,0 +1,3 @@
+add_executable(appletinitexttest main.cpp)
+target_link_libraries(appletinitexttest PRIVATE gs2_displaypp gs2_mmu gs2_paths)
+add_test(NAME appletinitexttest COMMAND appletinitexttest)

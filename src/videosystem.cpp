@@ -502,6 +502,8 @@ void video_system_t::register_frame_processor(int weight, FrameHandler handler) 
 }
 
 void video_system_t::update_display(bool force_full_frame) {
+    logical_scanlines = 0;
+    fields_already_composed = false;
     int w=0,h=0; SDL_GetWindowSizeInPixels(window,&w,&h);
     if (w<=0 || h<=0) return;
     ensure_scene_target(w,h);
@@ -535,7 +537,7 @@ void video_system_t::update_display(bool force_full_frame) {
 void video_system_t::present_scene() {
     gs2::postprocess::FrameView frame;
     frame.source_width=std::max(1,static_cast<int>(last_srcrect.w));
-    frame.source_height=std::max(1,static_cast<int>(last_srcrect.h));
+    frame.source_height=logical_scanlines ? logical_scanlines : std::max(1,static_cast<int>(last_srcrect.h));
     if(scene_target_w>0 && scene_target_h>0 && target.w>0 && target.h>0)
         frame.source_region={target.x/scene_target_w,target.y/scene_target_h,target.w/scene_target_w,target.h/scene_target_h};
     postprocessor->begin_ui(frame);

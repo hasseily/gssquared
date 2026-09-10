@@ -1,11 +1,14 @@
 gs2_version = 1
 id = "d08a1080-49ea-4bf1-ae40-070000000108"
 name = "IIe Enhanced Appletini"
-description = "Appletini ONE F1.0.8 slot-7 SmartPort and 8 MB RamWorks"
+description = "Appletini ONE F1.0.8 SmartPort, RamWorks, extended video and linear text"
 platform = "apple2e_enhanced"
 clock = "ntsc"
 
 [appletini]
+accelerator = false
+speed = "33"
+ignore_c074 = false
 ram32 = false
 ramworks = true
 
