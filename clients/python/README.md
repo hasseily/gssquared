@@ -2,6 +2,11 @@
 
 Python client for the GSSquared external debug protocol.
 
+Local Unix-domain sockets work on macOS, Linux and Windows 10 or later. When a
+Windows Python build lacks `socket.AF_UNIX`, the client connects through
+Winsock using `ctypes`, then uses ordinary Python sockets for protocol I/O,
+timeouts and cleanup. No additional Python dependencies are required.
+
 - **Agent cookbook:** [Docs/gs2debug.md](../../Docs/gs2debug.md)
 - Wire format: [Docs/DebugProtocol.md](../../Docs/DebugProtocol.md)
 - Client design notes: [Docs/DebugClient.md](../../Docs/DebugClient.md)
