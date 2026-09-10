@@ -41,6 +41,7 @@
 #include "ui/OSD.hpp"
 #if defined(__EMSCRIPTEN__)
 #include "platform-specific/emscripten/web_file_dialog.hpp"
+#include <emscripten.h>
 #endif
 #include "systemconfig.hpp"
 #include "slots.hpp"
@@ -102,6 +103,28 @@
 
 /** Globals we haven't dealt properly with yet. */
 OSD *osd = nullptr;
+
+#if defined(__EMSCRIPTEN__)
+static void release_web_graphics();
+static bool web_context_lost = false;
+static bool web_context_restore_pending = false;
+static unsigned web_context_recovery_count = 0;
+static int web_context_preserved_state = 0;
+extern "C" EMSCRIPTEN_KEEPALIVE void gs2_webgl_context_lost() {
+    web_context_lost = true;
+    release_web_graphics();
+}
+extern "C" EMSCRIPTEN_KEEPALIVE void gs2_webgl_context_restored() {
+    web_context_restore_pending = true;
+}
+extern "C" EMSCRIPTEN_KEEPALIVE unsigned gs2_webgl_recovery_count() {
+    return web_context_recovery_count;
+}
+extern "C" EMSCRIPTEN_KEEPALIVE int gs2_webgl_preserved_state() {
+    return web_context_preserved_state;
+}
+#endif
+
 
 // Defined in OSD.cpp — used here where osd is accessible for menu-triggered disk toggle
 void handle_disk_toggle(computer_t *computer, OSD *osd, storage_key_t key);
@@ -671,6 +694,22 @@ struct GS2AppState {
     MMU_IIgs *mmu_iigs = nullptr;
 };
 
+#if defined(__EMSCRIPTEN__)
+static GS2AppState* web_app_state = nullptr;
+static SDL_Renderer* web_previous_renderer = nullptr;
+static void release_web_graphics() {
+    if (!web_app_state || !web_app_state->computer) return;
+    auto* vs = web_app_state->computer->video_system;
+    if (!vs || !vs->renderer) return;
+    web_previous_renderer = vs->renderer;
+    // Delete old-generation objects while the context is lost, before the
+    // browser restores it and starts rejecting those object handles.
+    shutdownMenuRenderer();
+    RendererResource::release_all(web_previous_renderer);
+    vs->release_postprocessor();
+}
+#endif
+
 void transition_to_emulation(GS2AppState *state, const SystemConfig_t *system_config, int builtin_system_id);
 
 static bool apply_system_config_file(GS2AppState *state, const std::string& path, std::string& error_out) {
@@ -777,9 +816,9 @@ void transition_to_emulation(GS2AppState *state, const SystemConfig_t *system_co
     // SDL_AppIterate via requestAnimationFrame (the frame_sleep busy-wait
     // is disabled there — see frame_sleep()).
 #ifdef __EMSCRIPTEN__
-    SDL_SetRenderVSync(vs->renderer, 1);
+    vs->set_vsync(1);
 #else
-    SDL_SetRenderVSync(vs->renderer, 0);
+    vs->set_vsync(0);
 #endif
 
     state->platform_id = system_config->platform_id;
@@ -986,9 +1025,7 @@ void transition_to_emulation(GS2AppState *state, const SystemConfig_t *system_co
 
     run_cpus_init(computer);
     vs->set_crt_shader_enabled(false, false);
-    if (gs2_app_values.crt_shader_at_boot) {
-        vs->set_crt_shader_enabled(true, true);
-    }
+    if (gs2_app_values.crt_shader_at_boot) vs->set_crt_shader_enabled(true, true);
     state->phase = PHASE_EMULATION;
 }
 
@@ -1041,7 +1078,7 @@ void transition_to_shutdown(GS2AppState *state) {
     state->computer = new computer_t(nullptr);
     video_system_t *vs = state->computer->video_system;
 
-    initMenu(vs->window);
+    initMenu(vs->window, vs->renderer);
 
     // Recreate AssetAtlas with the new renderer
     state->aa = new AssetAtlas_t(vs->renderer, "img/atlas.png");
@@ -1050,7 +1087,7 @@ void transition_to_shutdown(GS2AppState *state) {
     state->select_system = new SelectSystem(vs, state->aa);
 
     // Let vsync throttle the selection UI instead of spinning.
-    SDL_SetRenderVSync(vs->renderer, 1);
+    vs->set_vsync(1);
     state->phase = PHASE_SYSTEM_SELECT;
 
     state->loaded_config.reset();
@@ -1073,6 +1110,9 @@ SDL_AppResult SDL_AppInit(void **appstate, int argc, char **argv) {
     SDL_SetHint(SDL_HINT_MAC_SCROLL_MOMENTUM, "1");
 
     GS2AppState *state = new GS2AppState();
+#if defined(__EMSCRIPTEN__)
+    web_app_state = state;
+#endif
     
     int platform_id = PLATFORM_APPLE_II_PLUS;  // default to Apple II Plus
     bool platform_explicit = false;            // true when -p was given on CLI
@@ -1233,7 +1273,7 @@ SDL_AppResult SDL_AppInit(void **appstate, int argc, char **argv) {
 
     video_system_t *vs = state->computer->video_system;
 
-    initMenu(vs->window);
+    initMenu(vs->window, vs->renderer);
 
     state->aa = new AssetAtlas_t(vs->renderer, "img/atlas.png");
     state->aa->set_elements(MainAtlas_count, asset_rects);
@@ -1241,7 +1281,7 @@ SDL_AppResult SDL_AppInit(void **appstate, int argc, char **argv) {
     state->select_system = new SelectSystem(vs, state->aa);
 
     // Let vsync throttle the selection UI instead of spinning.
-    SDL_SetRenderVSync(vs->renderer, 1);
+    vs->set_vsync(1);
     state->phase = PHASE_SYSTEM_SELECT;
 
     // If the caller passed a config file path, skip the system-selector UI and
@@ -1276,6 +1316,13 @@ SDL_AppResult SDL_AppInit(void **appstate, int argc, char **argv) {
 }
 
 SDL_AppResult SDL_AppEvent(void *appstate, SDL_Event *event) {
+#if defined(__EMSCRIPTEN__)
+    if (web_context_lost) {
+        // The renderer is released until restoration; even quit confirmation
+        // UI must not dispatch through it during this interval.
+        return event->type == SDL_EVENT_QUIT ? SDL_APP_SUCCESS : SDL_APP_CONTINUE;
+    }
+#endif
     GS2AppState *state = (GS2AppState *)appstate;
 
     // Let the platform menu consume the event first (Linux hamburger/right-click)
@@ -1335,8 +1382,43 @@ SDL_AppResult SDL_AppEvent(void *appstate, SDL_Event *event) {
     return SDL_APP_CONTINUE;
 }
 
+#if defined(__EMSCRIPTEN__)
+static uint32_t guest_ram_fingerprint(computer_t* computer) {
+    uint32_t hash = 2166136261u;
+    if (!computer || !computer->cpu || !computer->cpu->mmu) return hash;
+    auto* mmu = computer->cpu->mmu;
+    const uint8_t* ram = mmu->get_memory_base();
+    if (ram) for (uint32_t i = 0; i < mmu->get_memory_size(); ++i) hash = (hash ^ ram[i]) * 16777619u;
+    return hash ^ computer->cpu->full_pc;
+}
+#endif
+
 SDL_AppResult SDL_AppIterate(void *appstate) {
     GS2AppState *state = (GS2AppState *)appstate;
+#if defined(__EMSCRIPTEN__)
+    if (web_context_restore_pending) {
+        video_system_t* vs = state->computer->video_system;
+        const auto fingerprint = guest_ram_fingerprint(state->computer);
+        SDL_Renderer* previous = web_previous_renderer;
+        if (!vs->recreate_postprocessor()) {
+            web_context_restore_pending = false;
+            SDL_Log("WebGL renderer recreation failed: %s", SDL_GetError());
+            return SDL_APP_CONTINUE;
+        }
+        RendererResource::restore_all(previous, vs->renderer);
+        web_previous_renderer = nullptr;
+        initMenu(vs->window, vs->renderer);
+        if (state->select_system) state->select_system->mark_dirty();
+        if (state->edit_system) state->edit_system->mark_dirty();
+        state->computer->last_cycle_time = SDL_GetTicksNS();
+        web_context_preserved_state = fingerprint == guest_ram_fingerprint(state->computer) ? 1 : -1;
+        ++web_context_recovery_count;
+        web_context_restore_pending = false;
+        web_context_lost = false;
+        SDL_Log("WebGL restored; guest RAM and PC preserved: %s", web_context_preserved_state == 1 ? "yes" : "NO");
+    }
+    if (web_context_lost) return SDL_APP_CONTINUE;
+#endif
 
     // Pump any pending GTK/GDK events (Linux menu). Called here rather than
     // in SDL_AppEvent to avoid blocking SDL's X11 connection (deadlock risk).
@@ -1358,6 +1440,7 @@ SDL_AppResult SDL_AppIterate(void *appstate) {
             state->select_system->mark_dirty();
         }
         if (state->select_system->update()) {
+            vs->begin_host_ui();
             SDL_SetRenderDrawColor(vs->renderer, 0, 0, 0, 255);
             vs->clear();
             state->select_system->render();
@@ -1418,6 +1501,7 @@ SDL_AppResult SDL_AppIterate(void *appstate) {
             state->edit_system->mark_dirty();
         }
         if (state->edit_system->update()) {
+            vs->begin_host_ui();
             SDL_SetRenderDrawColor(vs->renderer, 0, 0, 0, 255);
             vs->clear();
             state->edit_system->render();
@@ -1464,6 +1548,9 @@ SDL_AppResult SDL_AppIterate(void *appstate) {
 }
 
 void SDL_AppQuit(void *appstate, SDL_AppResult result) {
+#if defined(__EMSCRIPTEN__)
+    web_app_state = nullptr;
+#endif
     //(void)result;
     GS2AppState *state = (GS2AppState *)appstate;
     if (!state) return;

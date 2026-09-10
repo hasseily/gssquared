@@ -317,24 +317,21 @@ static void build_menu_bar()
 
 // ── Public API ────────────────────────────────────────────────────────────────
 
-void initMenu(SDL_Window *window)
-{
-    g_window = window;
-
-    // Tear down any previous context (re-init after close/reopen)
+void shutdownMenuRenderer() {
     if (g_imgui_inited) {
         ImGui_ImplSDLRenderer3_Shutdown();
         ImGui_ImplSDL3_Shutdown();
         ImGui::DestroyContext();
-        g_imgui_inited  = false;
+        g_imgui_inited = false;
         g_grab_released = false;
     }
+}
 
-    SDL_Renderer *renderer = SDL_GetRenderer(window);
-    if (!renderer) {
-        SDL_Log("initMenu: SDL_GetRenderer returned null: %s", SDL_GetError());
-        return;
-    }
+void initMenu(SDL_Window *window, SDL_Renderer* renderer) {
+    shutdownMenuRenderer();
+    g_window = window;
+    if (!renderer) renderer = SDL_GetRenderer(window);
+    if (!renderer) { SDL_Log("No renderer available for menus"); return; }
 
     IMGUI_CHECKVERSION();
     ImGui::CreateContext();

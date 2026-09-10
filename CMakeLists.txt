@@ -197,6 +197,9 @@ function(configure_sdl_builds)
         set(SDL_SHARED OFF)
         set(SDL_STATIC ON)
         set(SDL_TEST OFF)
+        # This application already requires pthreads/SharedArrayBuffer. SDL
+        # defaults this option off on Emscripten unless explicitly requested.
+        set(SDL_PTHREADS ON CACHE BOOL "Enable SDL threads for the web application" FORCE)
         set(SDLIMAGE_VENDORED ON)
         set(SDLTTF_VENDORED ON)
         # We only need PNG (atlas / IBM_VGA font). Disable the heavy optional
@@ -221,15 +224,41 @@ function(configure_sdl_builds)
         set(SDLTTF_VENDORED ON)
     endif()
 
-    # Force rebuild SDL with these settings
-    add_subdirectory(${CMAKE_SOURCE_DIR}/vendored/SDL)
-    add_subdirectory(${CMAKE_SOURCE_DIR}/vendored/SDL_image)
-    add_subdirectory(${CMAKE_SOURCE_DIR}/vendored/SDL_ttf)
+    # Use an unmodified supported SDL outside vendored/. This supplies public
+    # public GPU texture import/export used by the display renderer.
+    set(GS2_SDL_SOURCE_DIR "" CACHE PATH "Existing unmodified SDL 3.4.16 source (optional)")
+    if(NOT GS2_SDL_SOURCE_DIR)
+        include(FetchContent)
+        FetchContent_Declare(gs2_stock_sdl
+            URL https://github.com/libsdl-org/SDL/releases/download/release-3.4.16/SDL3-3.4.16.tar.gz
+            URL_HASH SHA256=7322236cd12090c3eb40b9728be4d49c76f66ad17d04369584d4ecad5cf77c68)
+        FetchContent_GetProperties(gs2_stock_sdl)
+        if(NOT gs2_stock_sdl_POPULATED)
+            FetchContent_Populate(gs2_stock_sdl)
+        endif()
+        set(GS2_SDL_SOURCE_DIR "${gs2_stock_sdl_SOURCE_DIR}")
+    endif()
+    add_subdirectory("${GS2_SDL_SOURCE_DIR}" "${CMAKE_BINARY_DIR}/_deps/stock-sdl-build")
+    set(GS2_SDL_IMAGE_SOURCE_DIR "${CMAKE_SOURCE_DIR}/vendored/SDL_image" CACHE PATH "Unmodified SDL_image source directory")
+    add_subdirectory("${GS2_SDL_IMAGE_SOURCE_DIR}" "${CMAKE_BINARY_DIR}/_deps/SDL_image-build")
+    set(GS2_SDL_TTF_SOURCE_DIR "${CMAKE_SOURCE_DIR}/vendored/SDL_ttf" CACHE PATH "Unmodified SDL_ttf source directory")
+    add_subdirectory("${GS2_SDL_TTF_SOURCE_DIR}" "${CMAKE_BINARY_DIR}/_deps/SDL_ttf-build")
     # SDL_net has no Emscripten backend (its interface-enumeration code is a hard
     # #error for unknown platforms). It is only used by the modem device, which
     # we exclude from the web build, so skip building it entirely there.
     if(NOT EMSCRIPTEN)
-        add_subdirectory(${CMAKE_SOURCE_DIR}/vendored/SDL_net)
+        set(GS2_SDL_NET_SOURCE_DIR "${CMAKE_SOURCE_DIR}/vendored/SDL_net" CACHE PATH "Unmodified SDL_net source directory")
+        add_subdirectory("${GS2_SDL_NET_SOURCE_DIR}" "${CMAKE_BINARY_DIR}/_deps/SDL_net-build")
+        if(MINGW)
+            # MinGW's optional POSIX aliases collide with SDL_net's private
+            # Windows socket read/write helpers. Keep its sources unmodified
+            # and disable only those legacy CRT names for this dependency.
+            foreach(gs2_net_target SDL3_net-shared SDL3_net-static)
+                if(TARGET ${gs2_net_target})
+                    target_compile_definitions(${gs2_net_target} PRIVATE NO_OLDNAMES)
+                endif()
+            endforeach()
+        endif()
     endif()
     set(BUILD_SHARED_LIBS OFF)
 endfunction()
@@ -518,6 +547,13 @@ add_library(gs2_ntsc
     src/display/shaders/GpuShaderLoader.cpp
 )
 
+add_library(gs2_postprocess src/display/postprocess/PostProcessor.cpp)
+target_link_libraries(gs2_postprocess PUBLIC gs2_ntsc ${GS2_SDL3})
+if(UNIX AND NOT APPLE AND NOT EMSCRIPTEN)
+    find_package(OpenGL REQUIRED)
+    target_link_libraries(gs2_postprocess PUBLIC OpenGL::GL)
+endif()
+
 target_link_libraries(gs2_displaypp PUBLIC gs2_ntsc)
 
 #add_library(gs2_diskii src/devices/diskii/ndiskii.cpp)
@@ -658,6 +694,7 @@ target_link_libraries(GSSquared
     gs2_computer
     gs2_mmu
     gs2_ntsc
+    gs2_postprocess
     gs2_devices_tcp 
     gs2_devices_keyboard 
     #gs2_devices_diskii_fmt 
@@ -755,6 +792,7 @@ if(NOT EMSCRIPTEN)
 
     add_subdirectory(apps/systemconfigtest)
     add_subdirectory(apps/renderresourcetest)
+    add_subdirectory(apps/postprocesstest)
     add_subdirectory(apps/videoscanregressiontest)
     add_subdirectory(apps/capturetest)
 endif()
