@@ -8,6 +8,7 @@
 #pragma once
 
 #include <SDL3/SDL.h>
+#include "display/RendererResource.hpp"
 #include <string>
 
 #include "AssetAtlas.hpp"
@@ -35,6 +36,7 @@ protected:
     video_system_t *vs = nullptr;
     AssetAtlas_t *aa = nullptr;
     UIContext ui_ctx{};
+    RendererResource renderer_resource_;
     TextRenderer *text_renderer = nullptr;
     TextRenderer *title_renderer = nullptr;
 

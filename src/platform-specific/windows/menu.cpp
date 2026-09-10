@@ -570,7 +570,7 @@ static void setupMenus()
 
 // ── Public API ────────────────────────────────────────────────────────────────
 
-void initMenu(SDL_Window *window)
+void initMenu(SDL_Window *window, SDL_Renderer* /*renderer*/)
 {
     HWND newHwnd = (HWND)SDL_GetPointerProperty(
         SDL_GetWindowProperties(window),
@@ -611,3 +611,5 @@ void setMenuTrackingCallback(MenuIterateCallback callback, void *appstate)
 }
 
 #endif // _WIN32
+
+void shutdownMenuRenderer() {}

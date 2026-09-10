@@ -96,10 +96,14 @@
     var Module = {
       canvas: (function () {
         var canvas = document.getElementById('canvas');
-        // Reload the page if WebGL context is lost.
+        // Pause at the next frame boundary, then rebuild disposable graphics
+        // resources when the browser restores the context. Guest state stays live.
         canvas.addEventListener('webglcontextlost', function (e) {
-          alert('WebGL context lost. You will need to reload the page.');
           e.preventDefault();
+          if (Module.ccall) Module.ccall('gs2_webgl_context_lost', null, [], []);
+        }, false);
+        canvas.addEventListener('webglcontextrestored', function () {
+          if (Module.ccall) Module.ccall('gs2_webgl_context_restored', null, [], []);
         }, false);
         return canvas;
       })(),

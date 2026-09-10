@@ -1,3 +1,4 @@
+#include "WindowCoordinates.hpp"
 /*
  *   Copyright (c) 2025-2026 Jawaid Bazyar
  */
@@ -92,6 +93,10 @@ EditSystem::EditSystem(video_system_t *vs, AssetAtlas_t *aa)
     text_renderer = new TextRenderer(vs->renderer, "fonts/OpenSans-Regular.ttf", 15.0f);
     title_renderer = new TextRenderer(vs->renderer, "fonts/OpenSans-Regular.ttf", 24.0f);
     ui_ctx = {vs->renderer, vs->window, text_renderer, title_renderer, aa};
+    renderer_resource_.register_owner(vs->renderer, [] {}, [this](SDL_Renderer* replacement) {
+        ui_ctx.renderer = replacement;
+        updated = true;
+    });
 
     design_width = vs->window_width > 0 ? vs->window_width : 1288;
     design_height = vs->window_height > 0 ? vs->window_height : 928;
@@ -691,6 +696,8 @@ bool EditSystem::update() {
 }
 
 void EditSystem::render() {
+    SDL_SetRenderLogicalPresentation(vs->renderer, design_width, design_height,
+                                     SDL_LOGICAL_PRESENTATION_LETTERBOX);
     if (!updated) return;
 
     platform_info *plat = get_platform(draft.config().platform_id);
@@ -762,7 +769,7 @@ bool EditSystem::event(const SDL_Event &event) {
     }
 
     SDL_Event ev = event;
-    SDL_ConvertEventToRenderCoordinates(vs->renderer, &ev);
+    window_event_to_design(vs->window, ev, design_width, design_height);
 
     if (card_picker) {
         if (card_picker->handle_mouse_event(ev)) {

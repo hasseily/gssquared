@@ -792,7 +792,7 @@ static void setupMenus(void) {
 	[helpMenu addItem:donateItem];
 }
 
-void initMenu(SDL_Window *window) {
+void initMenu(SDL_Window *window, SDL_Renderer* /*renderer*/) {
 	(void)window;
 	setupMenus();
 }
@@ -822,3 +822,5 @@ void setMenuTrackingCallback(MenuIterateCallback callback, void *appstate) {
 	                                           object:nil];
 }
 #endif
+
+void shutdownMenuRenderer() {}

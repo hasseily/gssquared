@@ -48,7 +48,8 @@ enum MenuEventCode {
 
 typedef SDL_AppResult (*MenuIterateCallback)(void *appstate);
 
-void initMenu(SDL_Window* window);
+void initMenu(SDL_Window* window, SDL_Renderer* renderer = nullptr);
+void shutdownMenuRenderer();
 void setMenuTrackingCallback(MenuIterateCallback callback, void *appstate);
 
 // Called from SDL_AppEvent; returns true if the event was consumed by the menu.

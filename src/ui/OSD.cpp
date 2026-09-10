@@ -278,6 +278,15 @@ OSD::OSD(computer_t *computer, SDL_Renderer *rendererp, SDL_Window *windowp, Slo
     title_trender->set_color(0, 0, 0, 0xFF);
 
     ui_ctx = { renderer, windowp, text_render, title_trender, aa };
+    renderer_resource_.register_owner(renderer, [this] {
+        if (cpTexture) SDL_DestroyTexture(cpTexture);
+        cpTexture = nullptr;
+    }, [this](SDL_Renderer* replacement) {
+        renderer = replacement;
+        ui_ctx.renderer = replacement;
+        cpTexture = SDL_CreateTexture(renderer, PIXEL_FORMAT, SDL_TEXTUREACCESS_TARGET, window_w, window_h);
+        if (!cpTexture) SDL_Log("Cannot restore control panel texture: %s", SDL_GetError());
+    });
 
     Style_t CS = {
         .background_color = 0xFFFFFFFF,
@@ -789,6 +798,7 @@ void OSD::set_heads_up_message(const std::string &text, int /*count*/) {
 
 /** Draw the control panel (if visible) */
 void OSD::render() {
+    SDL_Texture* host_target = SDL_GetRenderTarget(renderer);
     int window_width, window_height;
     SDL_GetWindowSize(window, &window_width, &window_height);
     
@@ -863,7 +873,7 @@ void OSD::render() {
             activeModal->render();
         } */
 
-        SDL_SetRenderTarget(renderer, nullptr);
+        SDL_SetRenderTarget(renderer, host_target);
 
         // now render the cpTexture into window
         SDL_RenderTexture(renderer, cpTexture, NULL, &cpTargetRect);

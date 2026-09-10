@@ -3,6 +3,9 @@
 #include <SDL3/SDL.h>
 #include <functional>
 #include <map>
+#include <memory>
+#include "display/postprocess/PostProcessor.hpp"
+#include "display/GuestOverlayFrame.hpp"
 #include "computer.hpp"
 #include "util/EventQueue.hpp"
 #include "display/types.hpp"
@@ -54,19 +57,14 @@ struct video_system_t {
     // custom fragment-shader post-processing). Null means we fell back to the
     // classic renderer and shader effects are unavailable.
     SDL_GPUDevice *gpu_device = nullptr;
-    // CRT post-process fragment shader and its render state. Only created when
-    // gpu_device is non-null. Null when unavailable.
-    SDL_GPUShader *crt_shader = nullptr;
-    SDL_GPURenderState *crt_state = nullptr;
-    // Offscreen render target the emulator frame is drawn into when the CRT
-    // shader is active; it is then blitted to the swapchain through the shader.
-    // Sized to the renderer's pixel output and recreated on resize.
-    SDL_Texture *scene_target = nullptr;
-    int scene_target_w = 0;
-    int scene_target_h = 0;
-    // User toggle for the CRT post-process shader. Only takes effect when the
-    // GPU renderer + shader are available (gpu_device and crt_state non-null).
+    std::unique_ptr<gs2::postprocess::PostProcessor> postprocessor;
+    SDL_Texture *scene_target = nullptr; // non-owning alias of postprocessor target
+    int scene_target_w = 0, scene_target_h = 0;
     bool crt_shader_enabled = false;
+    std::function<GuestOverlayFrame()> guest_overlay_provider;
+    SDL_Texture* guest_overlay_texture = nullptr;
+    uint64_t guest_overlay_generation = UINT64_MAX;
+    int guest_overlay_width = 0, guest_overlay_height = 0;
     SDL_Texture *screencap_texture = nullptr;
     
     display_fullscreen_mode_t display_fullscreen_mode = DISPLAY_WINDOWED_MODE;
@@ -110,15 +108,12 @@ protected:
     // Recompute the target rect from the renderer's real pixel output size
     // (not window points), so the emulator image is sized for the high-DPI backbuffer.
     void update_target_from_output();
-    // Create the CRT fragment shader and its GPU render state. No-op (returns
-    // false) when the GPU renderer is not in use. Safe to call once at init.
-    bool init_crt_shader();
     // Create/recreate the offscreen scene_target to match (w x h) pixels. No-op
     // when the CRT shader is unavailable. Called at init and on resize.
     void ensure_scene_target(int w, int h);
     void show_crt_shader_unavailable();
     // GPU readback of the last presented guest frame (+ borders). Caller owns the surface.
-    SDL_Surface *capture_screen_surface();
+    SDL_Surface *capture_screen_surface(bool* double_vertical=nullptr);
 
 public:
     video_system_t(computer_t *computer);
@@ -148,16 +143,21 @@ public:
     void save_screenshot();
     void flip_display_scale_mode();
     // True when the CRT post-process shader is available to be used.
-    bool crt_shader_available() const { return crt_state != nullptr; }
+    bool crt_shader_available() const { return postprocessor && postprocessor->available(); }
     bool get_crt_shader_enabled() const { return crt_shader_enabled; }
     void set_crt_shader_enabled(bool enabled, bool show_message = false);
     void toggle_crt_shader();
     void register_frame_processor(int weight, FrameHandler handler);
     void update_display(bool force_full_frame = false);
-    // When the CRT shader is active, blit the offscreen scene_target onto the
-    // swapchain (through the shader). No-op otherwise. Called once per frame
-    // after update_display() and before the OSD is drawn.
+    // Finish guest composition and start the independent host UI layer. Called
+    // once per frame after update_display() and before the OSD is drawn.
     void present_scene();
+    void release_postprocessor();
+    bool recreate_postprocessor();
+    bool set_vsync(int enabled) { return postprocessor->set_vsync(enabled); }
+    void begin_host_ui();
+    void set_guest_overlay_provider(std::function<GuestOverlayFrame()> provider) { guest_overlay_provider = std::move(provider); }
+
     void push_mouse_capture(bool capture);
     void pop_mouse_capture();
     RGBA_t get_mono_color() { return mono_color_table[display_mono_color]; };

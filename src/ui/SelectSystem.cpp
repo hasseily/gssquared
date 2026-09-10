@@ -1,3 +1,4 @@
+#include "WindowCoordinates.hpp"
 #include "SelectSystem.hpp"
 #include "Container.hpp"
 #include "systemconfig.hpp"
@@ -44,6 +45,10 @@ SelectSystem::SelectSystem(video_system_t *vs, AssetAtlas_t *aa)
     // ~33% smaller than the title/hover font for custom tile name labels.
     name_renderer = new TextRenderer(vs->renderer, "fonts/OpenSans-Regular.ttf", 16.0f);
     ui_ctx = { vs->renderer, vs->window, text_renderer, nullptr, aa };
+    renderer_resource_.register_owner(vs->renderer, [] {}, [this](SDL_Renderer* replacement) {
+        ui_ctx.renderer = replacement;
+        updated = true;
+    });
 
     container = new Container_t(&ui_ctx, CS);
 
@@ -215,7 +220,7 @@ bool SelectSystem::event(const SDL_Event &event) {
     // LETTERBOX logical presentation is left active for the selector's lifetime
     // (see constructor), so the conversion uses the same mapping as rendering.
     SDL_Event ev = event;
-    SDL_ConvertEventToRenderCoordinates(vs->renderer, &ev);
+    window_event_to_design(vs->window, ev, design_width, design_height);
 
     if (action_con_) {
         action_con_->handle_mouse_event(ev);
@@ -250,6 +255,8 @@ bool SelectSystem::update() {
 }
 
 void SelectSystem::render() {
+    SDL_SetRenderLogicalPresentation(vs->renderer, design_width, design_height,
+                                     SDL_LOGICAL_PRESENTATION_LETTERBOX);
     if (updated) {
         // The LETTERBOX logical presentation is already active (set in the
         // constructor). Draw everything in design coordinates; SDL maps it onto
