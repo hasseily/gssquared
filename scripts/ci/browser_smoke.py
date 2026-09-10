@@ -46,6 +46,22 @@ def main() -> None:
     thread.start()
     logs: list[str] = []
     page_errors: list[str] = []
+    log_path = args.output / "console.log"
+    log_path.write_text("")
+
+    def record_log(message: str) -> None:
+        logs.append(message)
+        # Keep evidence even if an external deadline stops a stuck browser.
+        with log_path.open("a") as output:
+            output.write(message + "\n")
+
+    def milestone(message: str) -> None:
+        record_log("stage: " + message)
+        print(f"[{args.browser}] {message}", flush=True)
+
+    def record_error(error: Exception) -> None:
+        page_errors.append(str(error))
+        record_log("pageerror: " + str(error))
     # Install a preset immediately before main(), after the shell finishes
     # restoring IDBFS. This exercises actual preset loading and full effects.
     initialize = r"""
@@ -79,15 +95,17 @@ def main() -> None:
     """
     try:
         with sync_playwright() as playwright:
+            milestone("launching browser")
             launch_args = [
                 "--use-gl=angle", "--use-angle=swiftshader", "--enable-unsafe-swiftshader",
             ] if args.browser == "chromium" else []
             browser = getattr(playwright, args.browser).launch(
                 executable_path=str(args.browser_executable) if args.browser_executable else None,
                 args=launch_args, headless=not args.headed)
-            page = browser.new_page(viewport={"width": 1288, "height": 928})
-            page.on("console", lambda msg: logs.append(f"{msg.type}: {msg.text}"))
-            page.on("pageerror", lambda error: page_errors.append(str(error)))
+            context = browser.new_context(viewport={"width": 1288, "height": 928})
+            page = context.new_page()
+            page.on("console", lambda msg: record_log(f"{msg.type}: {msg.text}"))
+            page.on("pageerror", record_error)
             # Keep interception enabled across navigation. Enabling it only at
             # the click races the app's deferred SDL event/frame callback.
             page.on("filechooser", lambda chooser: None)
@@ -95,6 +113,7 @@ def main() -> None:
                 page.add_init_script(initialize)
             try:
                 if args.golden_only:
+                    milestone("loading original-shader golden test")
                     page.goto(f"http://127.0.0.1:{server.server_port}/{page_name}", wait_until="domcontentloaded")
                     page.wait_for_function("window.gs2GoldenTest && ['passed', 'failed'].includes(window.gs2GoldenTest.status)",
                                            timeout=120_000)
@@ -124,8 +143,10 @@ def main() -> None:
                     assert result["status"] == "passed", result
                     assert result["comparisons"] > 0, result
                     assert "WebGL2" in result["backend"], result
-                    print(json.dumps({"browser": args.browser, **result}, indent=2))
+                    milestone("golden assertions passed")
+                    print(json.dumps({"browser": args.browser, **result}, indent=2), flush=True)
                     return
+                milestone("loading application")
                 page.goto(f"http://127.0.0.1:{server.server_port}/GSSquared.html", wait_until="domcontentloaded")
                 page.wait_for_function("window.runtimeReady === true", timeout=120_000)
                 page.locator("#overlay").click()
@@ -139,6 +160,7 @@ def main() -> None:
                 failures = [line for line in logs if any(term in line for term in
                     ("Postprocessing shader:", "Postprocessing shader link:", "Postprocessing unavailable", "Postprocessing presentation failed"))]
                 assert not failures, failures
+                milestone("application ready with full effects")
                 # Check geometry explicitly: element screenshot stability waits
                 # can time out while a software WebGL renderer keeps animating.
                 # A moving canvas must still fail, not be hidden by crop capture.
@@ -154,7 +176,7 @@ def main() -> None:
                     }
                     return samples;
                 }""")
-                logs.append("canvas bounds: " + json.dumps(bounds))
+                record_log("canvas bounds: " + json.dumps(bounds))
                 assert all(abs(sample[key] - bounds[0][key]) < 0.5
                            for sample in bounds for key in ("x", "y", "width", "height", "backingWidth", "backingHeight")), "Canvas geometry oscillates: " + repr(bounds)
                 assert abs(bounds[0]["backingWidth"] - bounds[0]["width"] * bounds[0]["dpr"]) <= 1, "Canvas backing width does not match viewport density: " + repr(bounds[0])
@@ -165,9 +187,23 @@ def main() -> None:
                     assert box is not None and box["width"] > 0 and box["height"] > 0
                     page.screenshot(path=str(args.output / name), clip=box, scale="css")
 
+                def wait_ui_frames() -> None:
+                    page.wait_for_function("""() => new Promise(resolve =>
+                        requestAnimationFrame(() => requestAnimationFrame(() => resolve(true))))""")
+
+                def current_settings() -> dict:
+                    return page.evaluate("JSON.parse(FS.readFile('/postprocess/current.json', {encoding:'utf8'}))")
+
+                def wait_setting(name: str, value: object) -> None:
+                    page.wait_for_function("""([name, value]) =>
+                        JSON.parse(FS.readFile('/postprocess/current.json', {encoding:'utf8'}))[name] === value""",
+                        arg=[name, value])
+
                 capture_canvas("effects-on.png")
+                milestone("captured full effects; checking toggle and persistence")
                 page.keyboard.press("F7")
-                page.wait_for_timeout(1000)
+                wait_setting("p_i_postprocessingLevel", 0)
+                wait_ui_frames()
                 capture_canvas("effects-toggled.png")
                 rendered = Image.open(args.output / "effects-on.png").convert("RGB")
                 assert max(hi - lo for lo, hi in rendered.getextrema()) > 32, "Canvas is blank"
@@ -179,12 +215,15 @@ def main() -> None:
                 page.reload(wait_until="domcontentloaded")
                 page.wait_for_function("window.runtimeReady === true", timeout=120_000)
                 page.locator("#overlay").click()
-                page.wait_for_timeout(1000)
+                wait_ui_frames()
                 assert page.evaluate("JSON.parse(FS.readFile('/postprocess/current.json', {encoding:'utf8'})).p_i_postprocessingLevel") == 0, "Saved effects setting was not restored from IDBFS"
+                milestone("preset persistence passed; checking resize and controls")
                 # Resizing exercises FBO/texture reallocation and persistent settings.
                 previous_size = page.evaluate("[Module.canvas.width, Module.canvas.height]")
                 page.set_viewport_size({"width": 960, "height": 720})
-                page.wait_for_timeout(1000)
+                page.wait_for_function("previous => Module.canvas.width !== previous[0] || Module.canvas.height !== previous[1]",
+                                       arg=previous_size)
+                wait_ui_frames()
                 assert page.evaluate("[Module.canvas.width, Module.canvas.height]") != previous_size, "Canvas backing buffer did not resize"
                 capture_canvas("resized.png")
                 assert not page_errors, page_errors
@@ -193,57 +232,65 @@ def main() -> None:
                 # before and after resource rebuilding at the frame boundary.
                 page.keyboard.press("F7")
                 page.keyboard.press("Shift+F7")
-                page.wait_for_timeout(500)
+                wait_ui_frames()
                 canvas_box = page.locator("#canvas").bounding_box()
                 assert canvas_box is not None
                 panel_width = min(600, int(canvas_box["width"]) - 24)
                 panel_height = min(760, int(canvas_box["height"]) - 24)
                 panel_x = canvas_box["x"] + canvas_box["width"] - panel_width - 12
                 panel_y = canvas_box["y"] + (canvas_box["height"] - panel_height) / 2
+                capture_canvas("settings-initial.png")
+                initial_panel = Image.open(args.output / "settings-initial.png").convert("RGB")
+                initial_panel_area = (int(panel_x - canvas_box["x"] + 24),
+                                      int(panel_y - canvas_box["y"] + 24),
+                                      int(panel_x - canvas_box["x"] + panel_width - 24),
+                                      int(panel_y - canvas_box["y"] + min(580, panel_height - 100)))
+                assert min(ImageStat.Stat(initial_panel.crop(initial_panel_area)).mean) > 160, "Settings panel was not ready for controls"
 
                 def click_action(index: int) -> None:
                     button_width = (panel_width - 36) / 3 - 6
                     page.mouse.click(panel_x + 16 + (index % 3) * (button_width + 6) + button_width / 2,
                                      panel_y + 100 + (index // 3) * 34)
 
-                def current_settings() -> dict:
-                    return page.evaluate("JSON.parse(FS.readFile('/postprocess/current.json', {encoding:'utf8'}))")
-
                 def wait_picker_completion() -> None:
                     # FileReader completes asynchronously, and the canvas UI
                     # consumes its result in the following app frame. A fixed
                     # delay races that work on software-rendered CI machines.
                     page.wait_for_function("!document.querySelector('input[type=file]')")
-                    page.wait_for_function("""() => new Promise(resolve =>
-                        requestAnimationFrame(() => requestAnimationFrame(() => resolve(true))))""")
+                    wait_ui_frames()
 
                 # Exercise the real canvas controls, including the SDL-to-web
                 # file picker and browser download adapter.
+                milestone("selecting next preset")
                 click_action(1)  # Next preset
-                page.wait_for_timeout(600)
+                page.wait_for_function("JSON.parse(FS.readFile('/postprocess/current.json', {encoding:'utf8'})).preset_name !== 'CI full effects'")
                 assert current_settings()["preset_name"] != "CI full effects", "Next preset button did not load a preset"
+                milestone("next preset applied")
                 # The first row is the effects level. Clicking its right side
                 # places the caret after the existing value.
                 def edit_level(value: str) -> None:
+                    milestone("editing effects level to " + value)
                     page.mouse.click(panel_x + panel_width - 52, panel_y + 225)
                     for _ in range(4):
                         page.keyboard.press("Backspace")
                     page.keyboard.type(value)
                     page.keyboard.press("Enter")
-                    page.wait_for_timeout(600)
+                    wait_setting("p_i_postprocessingLevel", int(value))
 
                 edit_level("1")
                 assert current_settings()["p_i_postprocessingLevel"] == 1, "Numeric effects editor did not apply the typed value"
                 edit_level("2")
                 assert current_settings()["p_i_postprocessingLevel"] == 2
                 saved_count = page.evaluate("FS.readdir('/postprocess/presets').filter(name => name.endsWith('.json')).length")
+                milestone("saving a new preset")
                 click_action(2)  # Save new
-                page.wait_for_timeout(600)
+                page.wait_for_function("count => FS.readdir('/postprocess/presets').filter(name => name.endsWith('.json')).length === count + 1",
+                                       arg=saved_count)
                 assert page.evaluate("FS.readdir('/postprocess/presets').filter(name => name.endsWith('.json')).length") == saved_count + 1
                 capture_canvas("controls-before-scroll.png")
                 page.mouse.move(panel_x + 200, panel_y + 350)
                 page.mouse.wheel(0, 400)
-                page.wait_for_timeout(300)
+                wait_ui_frames()
                 capture_canvas("controls-scrolled.png")
                 before_scroll = Image.open(args.output / "controls-before-scroll.png").convert("RGB")
                 after_scroll = Image.open(args.output / "controls-scrolled.png").convert("RGB")
@@ -251,11 +298,14 @@ def main() -> None:
                                  int(panel_x - canvas_box["x"] + panel_width - 40),
                                  int(panel_y - canvas_box["y"] + panel_height - 90))
                 assert ImageChops.difference(before_scroll.crop(controls_area), after_scroll.crop(controls_area)).getbbox(), "Control list did not scroll"
+                milestone("opening import picker for cancellation")
                 with page.expect_file_chooser():
                     click_action(3)  # Import, then cancel
                 page.locator("input[type=file]").dispatch_event("cancel")
                 wait_picker_completion()
+                milestone("picker cancellation completed")
                 settings_before_invalid_import = current_settings()
+                milestone("opening import picker for malformed preset")
                 with page.expect_file_chooser() as invalid_picker:
                     click_action(3)
                 invalid_picker.value.set_files({"name": "invalid-preset.json", "mimeType": "application/json",
@@ -263,6 +313,7 @@ def main() -> None:
                 wait_picker_completion()
                 assert not page_errors, page_errors
                 assert current_settings() == settings_before_invalid_import, "Malformed preset changed the active settings"
+                milestone("malformed preset rejected; importing valid preset")
                 with page.expect_file_chooser() as picker:
                     click_action(3)
                 imported = {"preset_name": "CI imported preset", "p_i_postprocessingLevel": 2,
@@ -270,15 +321,16 @@ def main() -> None:
                 picker.value.set_files({"name": "browser-preset.json", "mimeType": "application/json",
                                         "buffer": json.dumps(imported).encode()})
                 wait_picker_completion()
-                page.wait_for_function("JSON.parse(FS.readFile('/postprocess/current.json', {encoding:'utf8'})).preset_name === 'CI imported preset'")
+                wait_setting("preset_name", imported["preset_name"])
                 assert current_settings()["preset_name"] == imported["preset_name"], "Browser preset import did not apply"
                 with page.expect_download() as download:
                     click_action(4)  # Export
                 export_path = args.output / "exported-preset.json"
                 download.value.save_as(export_path)
                 assert json.loads(export_path.read_text())["preset_name"] == imported["preset_name"], "Browser export differs from the active preset"
+                milestone("preset import/export passed; checking context recovery")
                 page.wait_for_function("!Module.gs2PostprocessSyncBusy && !Module.gs2PostprocessSyncDirty")
-                page.wait_for_timeout(600)
+                wait_ui_frames()
                 capture_canvas("settings-open.png")
                 previous_recoveries = page.evaluate("Module.ccall('gs2_webgl_recovery_count', 'number', [], [])")
                 page.evaluate("""() => {
@@ -294,7 +346,7 @@ def main() -> None:
                     "count => Module.ccall('gs2_webgl_recovery_count', 'number', [], []) > count",
                     arg=previous_recoveries, timeout=30_000)
                 assert page.evaluate("Module.ccall('gs2_webgl_preserved_state', 'number', [], [])") == 1, "Context recovery changed guest RAM/PC"
-                page.wait_for_timeout(1000)
+                wait_ui_frames()
                 capture_canvas("context-restored.png")
                 restored = Image.open(args.output / "context-restored.png").convert("RGB")
                 assert max(hi - lo for lo, hi in restored.getextrema()) > 32, "Restored canvas is blank"
@@ -310,21 +362,29 @@ def main() -> None:
                 assert max(panel_delta.mean) < 1, "Settings panel textures were not restored intact"
                 assert not page_errors, page_errors
                 assert not any("Postprocessing unavailable" in line or "Postprocessing presentation failed" in line for line in logs), logs
-                print(json.dumps({"browser": args.browser, "backend": version, "preset_persistence": "retained after reload", "context_recovery": "guest state and settings panel retained", "screenshots": str(args.output)}, indent=2))
+                milestone("application assertions passed")
+                print(json.dumps({"browser": args.browser, "backend": version, "preset_persistence": "retained after reload", "context_recovery": "guest state and settings panel retained", "screenshots": str(args.output)}, indent=2), flush=True)
             finally:
                 try:
                     page.screenshot(path=str(args.output / "final-page.png"), scale="css", timeout=5000)
                 except Exception as error:
                     # This extra diagnostic must not obscure an earlier test
                     # failure or stall cleanup when the compositor is stuck.
-                    logs.append("Final diagnostic screenshot unavailable: " + str(error))
+                    record_log("Final diagnostic screenshot unavailable: " + str(error))
                 finally:
-                    browser.close()
+                    try:
+                        milestone("closing browser context")
+                        context.close()
+                    finally:
+                        milestone("closing browser process")
+                        browser.close()
+                        milestone("browser closed")
     finally:
-        (args.output / "console.log").write_text("\n".join(logs + page_errors) + "\n")
+        milestone("stopping local server")
         server.shutdown()
         server.server_close()
         thread.join(timeout=5)
+        milestone("local server stopped")
 
 
 if __name__ == "__main__":

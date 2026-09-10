@@ -71,6 +71,8 @@ jobs:
           path: assets/shaders/postprocess/
       - name: Verify shader provenance
         run: python scripts/ci/shader_manifest.py
+      - name: Guest startup readiness regression
+        run: python scripts/test_appletini_guest_startup.py
       - name: Linux build and software GPU dependencies
         if: runner.os == 'Linux'
         run: |
@@ -200,6 +202,9 @@ jobs:
         run: |
           python scripts/ci/shader_manifest.py
           python scripts/ci/install_shader_tools.py --dxc-only --prefix "$env:RUNNER_TEMP/shader-tools"
+      - name: Guest startup readiness regression
+        shell: pwsh
+        run: python scripts/test_appletini_guest_startup.py
       - name: Compile HLSL with Windows DXC
         shell: pwsh
         run: |
@@ -304,16 +309,18 @@ jobs:
           python -m playwright install --with-deps chromium firefox webkit
           failed=0
           for browser in chromium firefox webkit; do
-            runner=(python scripts/ci/browser_smoke.py --browser "$browser")
+            runner=(python -u scripts/ci/browser_smoke.py --browser "$browser")
             if [ "$browser" = firefox ] || [ "$browser" = chromium ]; then
               # Firefox needs a display-backed GL context on Linux/Mesa;
               # Chromium needs its compositor for live WebGL screenshots.
-              runner=(xvfb-run -a -s "-screen 0 1600x1200x24" python scripts/ci/browser_smoke.py --headed --browser "$browser")
+              runner=(xvfb-run -a -s "-screen 0 1600x1200x24" python -u scripts/ci/browser_smoke.py --headed --browser "$browser")
             fi
-            if ! "${runner[@]}" --output "build-web/smoke/$browser"; then
+            # Cold Chromium app checks took about 200 seconds on these runners.
+            # Allow three times that duration, including bounded forced cleanup.
+            if ! timeout --kill-after=15s 10m "${runner[@]}" --output "build-web/smoke/$browser"; then
               failed=1
             fi
-            if ! "${runner[@]}" --golden-only --output "build-web/smoke/$browser/goldens"; then
+            if ! timeout --kill-after=15s 10m "${runner[@]}" --golden-only --output "build-web/smoke/$browser/goldens"; then
               failed=1
             fi
           done

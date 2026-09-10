@@ -17,7 +17,36 @@ import time
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "clients/python/src"))
 from gs2debug import (Client, MEM_MAIN, REG_PC, REG_SP, REG_P, BP_KIND_EXEC,
-                      BP_FLAG_ENABLED, BP_FLAG_TEMPORARY, MEDIA_OK)
+                      BP_FLAG_ENABLED, BP_FLAG_TEMPORARY, MEDIA_OK, PAUSE,
+                      ProtocolError)
+
+
+def pause_when_ready(c, deadline):
+    """Establish main-loop readiness within the existing debug-startup budget."""
+    # The listener can answer HELLO while the main thread initializes graphics.
+    # Code 6 is generic: retry only this exact bridge timeout, before any guest
+    # setup. The server clears bridge_pending_ when the request times out.
+    while True:
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            raise TimeoutError("Main thread did not become ready before debug startup timeout")
+        try:
+            reply = c.request(PAUSE, timeout=remaining)
+        except ProtocolError as error:
+            if error.code != 6 or error.message != "timeout waiting for main thread":
+                raise
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise TimeoutError("Main thread did not become ready before debug startup timeout") from error
+            time.sleep(min(0.1, remaining))
+            continue
+        if reply:
+            raise ProtocolError(0, f"PAUSE reply not empty ({len(reply)} bytes)")
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            raise TimeoutError("Main thread did not become ready before debug startup timeout")
+        c.wait_stopped(timeout=min(5, remaining))
+        return
 
 
 def write(c, address, value):
@@ -252,7 +281,7 @@ image = "missing-configured-image.po"
                             c.close()
                     time.sleep(0.1)
                 if not connected: raise TimeoutError("Debug socket did not start")
-                c.pause(); c.wait_stopped(timeout=5)
+                pause_when_ready(c, deadline)
                 test_smartport(c, directory)
                 test_ramworks(c)
                 test_overlay(c)
@@ -263,7 +292,7 @@ image = "missing-configured-image.po"
             finally:
                 if connected:
                     try: c.quit()
-                    except (OSError, ConnectionError): pass
+                    except (OSError, ConnectionError, ProtocolError): pass
                 c.close()
                 try: process.wait(timeout=10)
                 except subprocess.TimeoutExpired:

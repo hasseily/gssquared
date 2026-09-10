@@ -14,6 +14,8 @@ Apple GPU, not a test on Intel graphics hardware. The guest smoke test
 boots a fresh Appletini machine, calls the bundled SmartPort ROM with 6502
 code, and checks RAM32, mounted unit 8, 2MG offsets, reset, RamWorks mapping,
 and LINTXT detection. It uses the debugger's QUIT command on completion.
+Before guest setup, an initial PAUSE establishes main-thread readiness within
+the existing startup deadline; only the exact bridge-timeout response is retried.
 Build jobs fetch the repository history so the commit-count package version
 matches local builds; third-party submodules remain shallow pinned checkouts.
 
@@ -41,6 +43,11 @@ malformed JSON without interrupting emulation or changing settings, import a
 valid JSON file, and verify the exported browser download.
 Picker checks wait for the completed file read and subsequent UI frame before
 reopening the dialog, including on slower software graphics.
+Control checks wait for the expected saved settings and a rendered panel.
+Console messages and progress are written as they happen. Each browser test process has
+a ten-minute process limit (about three times the slowest observed cold
+Chromium app check), followed by at most 15 seconds of forced cleanup; exceeding
+the limit fails validation and retains the collected diagnostics.
 Playwright WebKit covers that browser engine; it is not a Safari product test.
 Linux CI runs Firefox and Chromium with `--headed` under Xvfb to provide
 Firefox's Mesa GL context and Chromium's live screenshot compositor.
