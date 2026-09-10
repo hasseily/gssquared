@@ -393,12 +393,42 @@ static bool test_settings_unknown_keys_warn() {
     return true;
 }
 
+static bool test_appletini_smartport_config() {
+    const auto path = fixture_dir().parent_path().parent_path().parent_path()
+        / "assets/gs2/IIe_Appletini.gs2";
+    SystemConfig config;
+    std::string error;
+    CHECK(config.load(path.string(), error), error);
+    CHECK(config.config().slot_devices[7] == DEVICE_ID_APPLETINI, "Appletini slot 7");
+    CHECK(!config.config().appletini.ram32, "RAM32 defaults off");
+    auto changed = config.config();
+    changed.appletini.ram32 = true;
+    SystemConfig output;
+    output.set_from_parts(changed, {});
+    const auto tmp = std::filesystem::temp_directory_path() / "gssquared_appletini_roundtrip.gs2";
+    CHECK(output.save(tmp.string(), error), error);
+    SystemConfig loaded;
+    CHECK(loaded.load(tmp.string(), error), error);
+    std::filesystem::remove(tmp);
+    CHECK(loaded.config().appletini.ram32, "RAM32 round trip");
+    SystemConfig_t slots{};
+    slots.platform_id = PLATFORM_APPLE_IIE_ENHANCED;
+    slots.slot_devices[7] = DEVICE_ID_APPLETINI;
+    slots.slot_devices[5] = DEVICE_ID_PD_BLOCK3;
+    CHECK(validate_slot_devices(slots, error), "Appletini and BazFast coexist");
+    slots.slot_devices[7] = DEVICE_ID_NONE;
+    slots.slot_devices[6] = DEVICE_ID_APPLETINI;
+    CHECK(!validate_slot_devices(slots, error), "Appletini requires slot 7");
+    return true;
+}
+
 static bool run_self_tests() {
     struct test_fn {
         const char* name;
         bool (*fn)();
     };
     static const test_fn tests[] = {
+        {"appletini_smartport_config", test_appletini_smartport_config},
         {"minimal", test_minimal},
         {"apple2plus", test_apple2plus},
         {"platforms", test_platforms},

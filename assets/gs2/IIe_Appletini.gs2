@@ -1,0 +1,13 @@
+gs2_version = 1
+id = "d08a1080-49ea-4bf1-ae40-070000000108"
+name = "IIe Enhanced Appletini"
+description = "Appletini ONE F1.0.8 slot-7 SmartPort"
+platform = "apple2e_enhanced"
+clock = "ntsc"
+
+[appletini]
+ram32 = false
+
+[[cards]]
+slot = 7
+card = "appletini"
