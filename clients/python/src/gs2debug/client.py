@@ -11,6 +11,7 @@ from dataclasses import dataclass
 from .errors import ProtocolError
 from .frame import HEADER_SIZE, Frame, pack_frame, unpack_header
 from .keys import KMOD_LSHIFT, SCANCODE_LSHIFT, ascii_to_key
+from ._transport import connect_unix
 from .types import (
     BP_ACCESS_NONE,
     BP_ACCESS_R,
@@ -153,8 +154,7 @@ class Client:
     def connect(self, path: str) -> None:
         if self._sock is not None:
             raise RuntimeError("already connected")
-        sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-        sock.connect(path)
+        sock = connect_unix(path)
         self._sock = sock
         self._handshaked = False
         self._next_seq = 1

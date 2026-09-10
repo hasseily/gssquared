@@ -304,8 +304,9 @@ jobs:
           failed=0
           for browser in chromium firefox webkit; do
             runner=(python scripts/ci/browser_smoke.py --browser "$browser")
-            if [ "$browser" = firefox ]; then
-              # Firefox needs a display-backed GL context on Linux/Mesa.
+            if [ "$browser" = firefox ] || [ "$browser" = chromium ]; then
+              # Firefox needs a display-backed GL context on Linux/Mesa;
+              # Chromium needs its compositor for live WebGL screenshots.
               runner=(xvfb-run -a -s "-screen 0 1600x1200x24" python scripts/ci/browser_smoke.py --headed --browser "$browser")
             fi
             if ! "${runner[@]}" --output "build-web/smoke/$browser"; then

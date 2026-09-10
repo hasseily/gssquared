@@ -303,8 +303,14 @@ def main() -> None:
                 assert not any("Postprocessing unavailable" in line or "Postprocessing presentation failed" in line for line in logs), logs
                 print(json.dumps({"browser": args.browser, "backend": version, "preset_persistence": "retained after reload", "context_recovery": "guest state and settings panel retained", "screenshots": str(args.output)}, indent=2))
             finally:
-                page.screenshot(path=str(args.output / "final-page.png"), scale="css")
-                browser.close()
+                try:
+                    page.screenshot(path=str(args.output / "final-page.png"), scale="css", timeout=5000)
+                except Exception as error:
+                    # This extra diagnostic must not obscure an earlier test
+                    # failure or stall cleanup when the compositor is stuck.
+                    logs.append("Final diagnostic screenshot unavailable: " + str(error))
+                finally:
+                    browser.close()
     finally:
         (args.output / "console.log").write_text("\n".join(logs + page_errors) + "\n")
         server.shutdown()

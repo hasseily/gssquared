@@ -40,8 +40,9 @@ value, scroll, save a new preset, cancel and reopen the import picker, reject
 malformed JSON without interrupting emulation or changing settings, import a
 valid JSON file, and verify the exported browser download.
 Playwright WebKit covers that browser engine; it is not a Safari product test.
-Linux CI runs Firefox with `--headed` under Xvfb so Mesa can provide its GL
-context. Canvas geometry is checked across six samples before viewport crops
+Linux CI runs Firefox and Chromium with `--headed` under Xvfb to provide
+Firefox's Mesa GL context and Chromium's live screenshot compositor.
+Canvas geometry is checked across six samples before viewport crops
 are captured, independently of Playwright's animated-element stability wait.
 The backing dimensions must match CSS size times device pixel ratio; headed
 Retina Firefox is also tested at DPR 2 (1288×928 CSS, 2576×1856 backing).
@@ -94,3 +95,7 @@ outputs; the macOS app has an ad hoc signature and is not notarized.
 The Windows package includes runtimes located beside the selected MinGW
 compiler. Its smoke test removes toolchain directories from the emulator's
 PATH so an incomplete ZIP cannot borrow DLLs from the build environment.
+The Python debug client also supports Windows builds without `socket.AF_UNIX`:
+it bridges the initial local connection through Winsock and keeps Python's
+socket object for protocol I/O and timeouts. The real guest smoke exercises
+this connection against the emulator's native Windows Unix-domain listener.
