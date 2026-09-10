@@ -20,7 +20,8 @@ Style_t config_selector_button_style();
 /**
  * Populate a container with CPU-speed SelectButtons (values = clock_mode_t).
  * Does not attach click handlers — caller wires them.
- * Returns pointers to the five buttons in order: 1.0, 2.8, 7.1, 14.3, free-run.
+ * Returns pointers to the six buttons in order:
+ * 1.0, 2.8, 7.1, 14.3, 33.3, free-run.
  */
 void populate_speed_selector(Container_t *container, UIContext *ctx, const Style_t& button_style,
                              SelectButton_t **out_btns = nullptr);

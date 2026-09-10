@@ -6,6 +6,9 @@ platform = "apple2e_enhanced"
 clock = "ntsc"
 
 [appletini]
+accelerator = false
+speed = "33"
+ignore_c074 = false
 ram32 = false
 ramworks = true
 

@@ -36,6 +36,7 @@ typedef enum {
     CLOCK_2_8MHZ,
     CLOCK_7_159MHZ,
     CLOCK_14_3MHZ,
+    CLOCK_33_3MHZ,
     NUM_CLOCK_MODES,
     INVALID_CLOCK_MODE = -1
 } clock_mode_t;

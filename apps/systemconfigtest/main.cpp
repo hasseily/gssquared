@@ -437,6 +437,9 @@ static bool test_appletini_smartport_config() {
     CHECK(changed.appletini.ramworks, "RamWorks defaults on");
     changed.appletini.ram32 = true;
     changed.appletini.ramworks = false;
+    changed.appletini.accelerator = true;
+    changed.appletini.ignore_c074 = true;
+    changed.appletini.speed = CLOCK_33_3MHZ;
     SystemConfig output;
     output.set_from_parts(changed, {});
     const auto tmp = std::filesystem::temp_directory_path() / "gssquared_appletini_roundtrip.gs2";
@@ -446,6 +449,13 @@ static bool test_appletini_smartport_config() {
     std::filesystem::remove(tmp);
     CHECK(loaded.config().appletini.ram32, "RAM32 round trip");
     CHECK(!loaded.config().appletini.ramworks, "RamWorks disable round trip");
+    CHECK(loaded.config().appletini.accelerator && loaded.config().appletini.ignore_c074
+        && loaded.config().appletini.speed == CLOCK_33_3MHZ, "accelerator round trip");
+    SystemConfig legacy;
+    CHECK(legacy.load((fixture_dir() / "Appletini Settings.txt").string(), error), error);
+    CHECK(legacy.config().appletini.accelerator && legacy.config().appletini.speed == CLOCK_2_8MHZ
+        && legacy.config().appletini.ignore_c074 && legacy.config().appletini.ram32,
+        "legacy speed migration and explicit card settings");
     SystemConfig_t slots{};
     slots.platform_id = PLATFORM_APPLE_IIE_ENHANCED;
     slots.slot_devices[7] = DEVICE_ID_APPLETINI;

@@ -35,3 +35,14 @@ Video continues to read bank 0. Reset selects bank 0 without clearing contents.
 `[appletini] ramworks = false` disables this extension; an independently selected
 memory expansion takes precedence. Other machine platforms keep their own
 memory implementations.
+
+The optional accelerator defaults off. Set `[appletini] accelerator = true` and
+`speed = "33"` to start at 33.333333 MHz; other saved values are `"1"`, `"2.8"`,
+`"7"`, `"14"`, and `"unlimited"`. The system editor and native speed menus expose
+33 MHz. Legacy `machine.speed` settings migrate when Appletini is selected.
+
+C074 decodes its low two bits: 1/2 select native speed, 3 stays slow until reset,
+and 0 restores the prior speed (including the calibrated unlimited multiplier).
+`ignore_c074 = true` suppresses these overrides. NTSC/PAL scanner and audio time
+follow a rational base-clock cadence at 33 MHz; physical TransWarp per-region
+slowdown scheduling is outside this guest-visible control interface.

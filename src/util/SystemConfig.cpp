@@ -577,8 +577,11 @@ bool SystemConfig::save(const std::string& path, std::string& error_out) {
     if (config_data_.slot_devices[SLOT_7] == DEVICE_ID_APPLETINI) {
         const auto& a = config_data_.appletini;
         out << "\n[appletini]\n" << std::boolalpha
+            << "accelerator = " << a.accelerator << "\n"
+            << "ignore_c074 = " << a.ignore_c074 << "\n"
+            << "ramworks = " << a.ramworks << "\n"
             << "ram32 = " << a.ram32 << "\n"
-            << "ramworks = " << a.ramworks << "\n";
+            << "speed = \"" << appletini_speed_name(a.speed) << "\"\n";
     }
 
 
@@ -814,8 +817,17 @@ bool SystemConfig::load_gs2(const std::string& path, std::string& error_out) {
         if (!settings) { error_out = "appletini must be a table"; return false; }
         for (const auto& [key, value] : *settings) {
             const std::string name(key.str());
-            bool* target = name == "ram32" ? &config_data_.appletini.ram32 :
-                name == "ramworks" ? &config_data_.appletini.ramworks : nullptr;
+            if (name == "speed") {
+                const auto text = value.value<std::string>();
+                const auto speed = text ? appletini_parse_speed(*text) : std::nullopt;
+                if (!speed) { error_out = "Invalid Appletini speed"; return false; }
+                config_data_.appletini.speed = *speed;
+                continue;
+            }
+            bool* target = name == "accelerator" ? &config_data_.appletini.accelerator :
+                name == "ignore_c074" ? &config_data_.appletini.ignore_c074 :
+                name == "ramworks" ? &config_data_.appletini.ramworks :
+                name == "ram32" ? &config_data_.appletini.ram32 : nullptr;
             if (!target) { warnings_.push_back("Unknown Appletini setting: " + name); continue; }
             const auto boolean = value.value<bool>();
             if (!boolean) { error_out = "Appletini " + name + " must be boolean"; return false; }

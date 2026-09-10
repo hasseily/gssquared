@@ -754,7 +754,8 @@ if(NOT EMSCRIPTEN)
     add_subdirectory(apps/mousebugtest)
 
     add_subdirectory(apps/systemconfigtest)
-add_subdirectory(apps/appletinismartporttest)
+    add_subdirectory(apps/appletinismartporttest)
+    add_subdirectory(apps/appletinispeedtest)
 endif()
 
 ################################################################################
