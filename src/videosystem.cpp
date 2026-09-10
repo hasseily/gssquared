@@ -165,6 +165,21 @@ video_system_t::video_system_t(computer_t *computer) {
                 return false;
         }
     });
+    computer->register_reset_handler([this](bool) {
+        reset_postprocess_history();last_render_mode=UINT64_MAX;return true;
+    });
+    register_frame_processor(-10000,[this,computer](bool) {
+        auto* ds=static_cast<display_state_t*>(computer->get_module_state(MODULE_DISPLAY));
+        if(ds){
+            // Page flips are intentionally excluded: pair merging needs their
+            // history. Mode/decoder changes start a new phosphor history.
+            uint64_t mode=uint64_t(ds->display_mode)|(uint64_t(ds->display_split_mode)<<4)|
+                (uint64_t(ds->display_graphics_mode)<<8)|(uint64_t(ds->f_80col)<<12)|
+                (uint64_t(ds->f_double_graphics)<<13)|(uint64_t(ds->new_video)<<16);
+            if(mode!=last_render_mode){reset_postprocess_history();last_render_mode=mode;}
+        }
+        return false;
+    });
     computer->sys_event->registerHandler(SDL_EVENT_MOUSE_BUTTON_DOWN, [this](const SDL_Event &event) {
         if (event.button.button == SDL_BUTTON_MIDDLE) {
             display_capture_mouse_message(!mouse_captured);
@@ -201,6 +216,8 @@ void video_system_t::set_window_title(const char *title) {
 void video_system_t::render_frame(SDL_Texture *texture, SDL_FRect *srcrect, SDL_FRect *dstadj, bool respect_mode,
         const SDL_FRect *content_inset_src) {
 
+    if(texture!=last_texture || srcrect->x!=last_srcrect.x || srcrect->y!=last_srcrect.y ||
+       srcrect->w!=last_srcrect.w || srcrect->h!=last_srcrect.h) reset_postprocess_history();
     SDL_FRect adj_target;
     if (dstadj) {
         float scale_x = target.w / srcrect->w; // recalc the scale
@@ -390,20 +407,24 @@ void video_system_t::send_engine_message() {
 }
 
 void video_system_t::toggle_display_engine() {
+    reset_postprocess_history();
     display_color_engine = (display_color_engine_t)((display_color_engine + 1) % DM_NUM_COLOR_ENGINES);
     send_engine_message();
 }
 
 void video_system_t::set_display_engine(display_color_engine_t mode) {
+    reset_postprocess_history();
     display_color_engine = mode;
     send_engine_message();
 }
 
 void video_system_t::set_display_mono_color(display_mono_color_t mode) {
+    reset_postprocess_history();
     display_mono_color = mode;
 }
 
 void video_system_t::flip_display_scale_mode() {
+    reset_postprocess_history();
     SDL_ScaleMode scale_mode;
 
     if (display_pixel_mode == DM_PIXEL_FUZZ) {
@@ -423,7 +444,8 @@ void video_system_t::set_crt_shader_enabled(bool enabled, bool show_message) {
         return;
     }
     crt_shader_enabled = enabled;
-    postprocessor->set_enabled(enabled);
+    postprocessor->settings().p_i_postprocessingLevel = enabled ? 2 : 0;
+    postprocessor->settings_changed();
     if (show_message) {
         event_queue->addEvent(new Event(EVENT_SHOW_MESSAGE, 0,
             crt_shader_enabled ? "CRT Shader On" : "CRT Shader Off"));
@@ -507,11 +529,22 @@ void video_system_t::update_display(bool force_full_frame) {
     int w=0,h=0; SDL_GetWindowSizeInPixels(window,&w,&h);
     if (w<=0 || h<=0) return;
     ensure_scene_target(w,h);
+    logical_scanlines=0; fields_already_composed=false;
+    postprocess_sample_width=postprocess_sample_height=0;
     SDL_SetRenderDrawColor(renderer,0,0,0,255);
     clear();
     for (const auto& pair : frame_handlers) if (pair.second(force_full_frame)) break;
     if (guest_overlay_provider) {
         const auto overlay=guest_overlay_provider();
+        // The provider reports its native canvas even while hidden. Keep the
+        // filter's sampling grid stable as linear text is shown or hidden, and
+        // account for decoded borders surrounding the active guest picture.
+        if(overlay.width>0&&overlay.height>0){
+            float sx=content.w>0?target.w/content.w:1.0f;
+            float sy=content.h>0?target.h/content.h:1.0f;
+            postprocess_sample_width=std::max(postprocess_sample_width,int(std::lround(overlay.width*sx)));
+            postprocess_sample_height=std::max(postprocess_sample_height,int(std::lround(overlay.height*sy)));
+        }
         if (overlay.visible && overlay.pixels && overlay.width>0 && overlay.height>0) {
             if (!guest_overlay_texture || guest_overlay_width!=overlay.width || guest_overlay_height!=overlay.height) {
                 if (guest_overlay_texture) SDL_DestroyTexture(guest_overlay_texture);
@@ -532,12 +565,18 @@ void video_system_t::update_display(bool force_full_frame) {
             }
         }
     }
+    ++rendered_frame_identity;
 }
 
 void video_system_t::present_scene() {
     gs2::postprocess::FrameView frame;
     frame.source_width=std::max(1,static_cast<int>(last_srcrect.w));
-    frame.source_height=logical_scanlines ? logical_scanlines : std::max(1,static_cast<int>(last_srcrect.h));
+    frame.source_height=std::max(1,static_cast<int>(last_srcrect.h));
+    frame.scanlines=logical_scanlines ? logical_scanlines : frame.source_height;
+    frame.identity=rendered_frame_identity;
+    frame.fields_already_composed=fields_already_composed;
+    frame.sample_width=postprocess_sample_width;frame.sample_height=postprocess_sample_height;
+    frame.seconds=SDL_GetTicksNS()/1000000000.0;
     if(scene_target_w>0 && scene_target_h>0 && target.w>0 && target.h>0)
         frame.source_region={target.x/scene_target_w,target.y/scene_target_h,target.w/scene_target_w,target.h/scene_target_h};
     postprocessor->begin_ui(frame);
@@ -557,16 +596,18 @@ bool video_system_t::recreate_postprocessor() {
     bool okay=postprocessor->recreate();
     renderer=postprocessor->renderer();gpu_device=postprocessor->device();
     int w=0,h=0;SDL_GetWindowSizeInPixels(window,&w,&h);
-    ensure_scene_target(w,h);
+    ensure_scene_target(w,h);reset_postprocess_history();
     return okay;
 }
 
 void video_system_t::begin_host_ui() {
     int w=0,h=0;SDL_GetWindowSizeInPixels(window,&w,&h);
     ensure_scene_target(w,h);
+    reset_postprocess_history();
     SDL_SetRenderLogicalPresentation(renderer,0,0,SDL_LOGICAL_PRESENTATION_DISABLED);
     SDL_SetRenderDrawColor(renderer,0,0,0,255);SDL_RenderClear(renderer);
     gs2::postprocess::FrameView frame;
-    frame.source_width=w;frame.source_height=h;
+    frame.source_width=w;frame.source_height=h;frame.scanlines=h;
+    frame.identity=++rendered_frame_identity;
     postprocessor->begin_ui(frame);
 }

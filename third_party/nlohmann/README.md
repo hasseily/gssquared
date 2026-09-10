@@ -1,0 +1,1 @@
+Unmodified JSON for Modern C++ 3.11.3 single header, copied from SuperDuperDisplay main b49a491. Upstream: https://github.com/nlohmann/json/releases/tag/v3.11.3. SPDX-License-Identifier: MIT; copyright/license notices remain in json.hpp.
