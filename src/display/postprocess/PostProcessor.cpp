@@ -1,4 +1,5 @@
 #include "PostProcessor.hpp"
+#include "ImageLoader.hpp"
 #include "display/shaders/GpuShaderLoader.hpp"
 #include "gs2.hpp"
 #include <SDL3_image/SDL_image.h>
@@ -241,7 +242,7 @@ struct PostProcessor::Impl {
     }
     bool upload_image(Texture& t,const std::string& path) {
         free_texture(t);
-        SDL_Surface* raw=path.empty()?SDL_CreateSurface(1,1,SDL_PIXELFORMAT_RGBA32):IMG_Load(path.c_str());
+        SDL_Surface* raw=path.empty()?SDL_CreateSurface(1,1,SDL_PIXELFORMAT_RGBA32):load_image_rgba(path.c_str());
         if(!raw)return false;
         SDL_Surface* surface=SDL_ConvertSurface(raw,SDL_PIXELFORMAT_RGBA32);SDL_DestroySurface(raw);
         if(!surface)return false;

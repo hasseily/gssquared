@@ -26,6 +26,13 @@ debug_window_t::debug_window_t(computer_t *computer) {
 
     panel_visible[DEBUG_PANEL_TRACE] = 1; // all default to off, so enable here.
 
+#if defined(__EMSCRIPTEN__)
+    // SDL browser windows share the main canvas. Even a hidden second window
+    // resizes its backing store and can blank the emulator on high-DPI screens.
+    // Keep the debugger model for CPU/monitor use without a native window.
+    return;
+#endif
+
     // create a new window
     window = SDL_CreateWindow("GSSquared Debugger", window_width, window_height, SDL_WINDOW_RESIZABLE|SDL_WINDOW_HIDDEN);
     // create a new renderer
@@ -186,9 +193,8 @@ debug_window_t::debug_window_t(computer_t *computer) {
 }
 
 debug_window_t::~debug_window_t() {
-    SDL_DestroyWindow(window);
-    SDL_DestroyRenderer(renderer);
-    delete text_renderer;
+    // Release textures and the font engine before their owning renderer.
+    video_views_.clear();
     delete tab_container;
     delete step_container;
     delete debug_display_container;
@@ -198,8 +204,11 @@ debug_window_t::~debug_window_t() {
     delete trace_scroll_;
     delete mon_scroll_;
     delete video_scroll_;
+    delete text_renderer;
     if (disasm) delete disasm;
     if (step_disasm) delete step_disasm;
+    if (renderer) SDL_DestroyRenderer(renderer);
+    if (window) SDL_DestroyWindow(window);
 }
 
 #include "debugger/disasm.hpp"
@@ -300,7 +309,7 @@ void debug_window_t::execute_command(const std::string& command) {
     if (mon_scroll_) {
         mon_scroll_->set_position(0);
     }
-    mon_textinput->clear_edit();
+    if (mon_textinput) mon_textinput->clear_edit();
 
     if (num_mem_watches != memory_watches.size()) {
         // memory watch list changed, so we need to re-render the memory pane
@@ -1238,7 +1247,7 @@ void debug_window_t::render_pane_memory() {
 void debug_window_t::render() {
     char buffer[256];
 
-    if (!window_open) {
+    if (!window_open || !renderer) {
         return;
     }
 
@@ -1610,6 +1619,7 @@ bool debug_window_t::is_open() {
 }
 
 void debug_window_t::set_open() {
+    if (!window || !renderer || window_open) return;
     disasm = new Disassembler(mmu, cpu->cpu_type); // used in monitor pane
     step_disasm = new Disassembler(mmu, cpu->cpu_type); // used in trace pane
     monitor_.bind(mmu, &memory_watches, computer->breakpoints, disasm, &debug_displays, cpu->trace_buffer,
@@ -1620,6 +1630,7 @@ void debug_window_t::set_open() {
 }
 
 void debug_window_t::set_closed() {
+    if (!window_open) return;
     window_open = false;
 
     computer->video_system->hide(window);
@@ -1634,6 +1645,7 @@ void debug_window_t::set_closed() {
 }
 
 void debug_window_t::resize_window() {
+    if (!window) return;
     constexpr int TRACE_WIDTH = 765;
 
     window_width = 0;

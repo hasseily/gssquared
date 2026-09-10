@@ -36,6 +36,7 @@ int main(int argc,char** argv) {
     if(!window){std::fprintf(stderr,"SKIP: %s\n",SDL_GetError());return strict?1:77;}
     {
         pp::PostProcessor processor(window);std::puts(processor.status().c_str());
+        if(processor.device())std::printf("GPU device: %s\n",SDL_GetStringProperty(SDL_GetGPUDeviceProperties(processor.device()),SDL_PROP_GPU_DEVICE_NAME_STRING,"unknown"));
         if(!processor.available())return strict?1:77;
         if(require_gl)require(processor.device()==nullptr,"OpenGL fallback must be selected");
         else if(strict)require(processor.device()!=nullptr,"native GPU backend must be selected");

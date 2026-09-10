@@ -40,6 +40,13 @@ value, scroll, save a new preset, cancel and reopen the import picker, reject
 malformed JSON without interrupting emulation or changing settings, import a
 valid JSON file, and verify the exported browser download.
 Playwright WebKit covers that browser engine; it is not a Safari product test.
+Linux CI runs Firefox with `--headed` under Xvfb so Mesa can provide its GL
+context. Canvas geometry is checked across six samples before viewport crops
+are captured, independently of Playwright's animated-element stability wait.
+The backing dimensions must match CSS size times device pixel ratio; headed
+Retina Firefox is also tested at DPR 2 (1288×928 CSS, 2576×1856 backing).
+The web build retains the debugger model without creating its native window,
+which would otherwise resize the shared emulator canvas.
 `renderresourcetest` independently replaces the renderer three times and
 compares the exact frame, asset atlas, and font-rendering output.
 
@@ -75,6 +82,8 @@ For a prebuilt Emscripten package:
 python3 -m pip install playwright==1.59.0 pillow==11.3.0
 python3 -m playwright install chromium firefox webkit
 python3 scripts/ci/browser_smoke.py --build build-web --browser chromium --output build-web/smoke/chromium
+# Build postprocessgoldentest too when running original-shader image comparisons.
+python3 scripts/ci/browser_smoke.py --build build-web --golden-only --browser chromium --output build-web/smoke/chromium/goldens
 ```
 
 Native jobs also create and smoke-test the installed macOS app (with a DMG),

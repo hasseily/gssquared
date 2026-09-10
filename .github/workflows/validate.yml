@@ -83,6 +83,7 @@ jobs:
       - name: Native regression tests
         env:
           SDL_AUDIODRIVER: dummy
+          GS2_TEST_ARTIFACT_DIR: ${{ github.workspace }}/build/smoke/ctest
         run: |
           if [ "$RUNNER_OS" = Linux ]; then
             xvfb-run -a ctest --test-dir build --output-on-failure --no-tests=error --output-junit ctest.xml
@@ -140,7 +141,7 @@ jobs:
         if: always()
         run: python scripts/ci/check_dependencies.py
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        if: always()
+        if: always() && runner.os == 'Linux'
         with:
           name: native-${{ matrix.runner }}
           path: |
@@ -152,8 +153,24 @@ jobs:
             build/postprocesstest
             build/postprocessgoldentest
             build/postprocess-goldens/
-            build/lib/
+            build/lib/*.so*
             build/resources/
+          retention-days: 7
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: always() && runner.os == 'macOS'
+        with:
+          name: native-${{ matrix.runner }}
+          # The DMG already contains the executable, resources and frameworks.
+          # Downloaded test binaries use those paths from a mounted DMG.
+          path: |
+            dist/
+            build/ctest.xml
+            build/Testing/Temporary/
+            build/smoke/
+            build/postprocesstest
+            build/postprocessreferencetest
+            build/postprocessgoldentest
+            build/postprocess-goldens/
           retention-days: 7
 
   windows:
@@ -209,6 +226,7 @@ jobs:
           cmake -G Ninja -S . -B build -DCMAKE_BUILD_TYPE=Release -DGS2_PROGRAM_FILES=ON -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++
           cmake --build build --parallel 3
           export PATH="$PWD/build/lib:$PWD/build:$PATH"
+          export GS2_TEST_ARTIFACT_DIR="$(cygpath -m "$PWD/build/smoke/ctest")"
           ctest --test-dir build --output-on-failure --no-tests=error --output-junit ctest.xml
           export GS2_TEST_RESOURCE_PATH="$(cygpath -m "$PWD/build/resources")"
           export GS2_TEST_ARTIFACT_DIR="$(cygpath -m "$PWD/build/smoke")"
@@ -244,7 +262,7 @@ jobs:
             build/postprocessgoldentest.exe
             build/postprocess-goldens/
             build/SDL3*.dll
-            build/lib/
+            build/lib/*.dll
             build/resources/
           retention-days: 7
 
@@ -285,10 +303,15 @@ jobs:
           python -m playwright install --with-deps chromium firefox webkit
           failed=0
           for browser in chromium firefox webkit; do
-            if ! python scripts/ci/browser_smoke.py --browser "$browser" --output "build-web/smoke/$browser"; then
+            runner=(python scripts/ci/browser_smoke.py --browser "$browser")
+            if [ "$browser" = firefox ]; then
+              # Firefox needs a display-backed GL context on Linux/Mesa.
+              runner=(xvfb-run -a -s "-screen 0 1600x1200x24" python scripts/ci/browser_smoke.py --headed --browser "$browser")
+            fi
+            if ! "${runner[@]}" --output "build-web/smoke/$browser"; then
               failed=1
             fi
-            if ! python scripts/ci/browser_smoke.py --golden-only --browser "$browser" --output "build-web/smoke/$browser/goldens"; then
+            if ! "${runner[@]}" --golden-only --output "build-web/smoke/$browser/goldens"; then
               failed=1
             fi
           done

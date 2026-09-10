@@ -3,6 +3,7 @@
 #define GL_SILENCE_DEPRECATION
 #include "../../third_party/nlohmann/json.hpp"
 #include "../postprocessfixtures/Fixture.hpp"
+#include "display/postprocess/ImageLoader.hpp"
 #include "display/postprocess/PostProcessPreset.hpp"
 #include "display/postprocess/PostProcessor.hpp"
 #include "gs2.hpp"
@@ -61,7 +62,7 @@ void save(const std::string &name, const Pixels &p) {
   auto *s = SDL_CreateSurfaceFrom(W, H, SDL_PIXELFORMAT_RGBA32,
                                   const_cast<unsigned char *>(p.data()), W * 4);
   check(s, "save surface");
-  check(SDL_SaveBMP(s, name.c_str()), "save bitmap");
+  check(IMG_SavePNG(s, name.c_str()), "save PNG");
   SDL_DestroySurface(s);
 }
 struct Reference {
@@ -70,6 +71,7 @@ struct Reference {
   GLuint program, vao, source, history[2], fbo;
   int index = 0;
   Reference(const std::string &path, bool composite = false) {
+    SDL_GL_SetAttribute(SDL_GL_ACCELERATED_VISUAL, 1);
     SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 4);
     SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 1);
     SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK,
@@ -81,6 +83,12 @@ struct Reference {
     context = SDL_GL_CreateContext(window);
     if (!context)
       unavailable("OpenGL reference context");
+    std::printf("Original OpenGL %s: vendor=%s; renderer=%s; version=%s\n",
+                composite ? "composition" : "CRT",
+                reinterpret_cast<const char *>(glGetString(GL_VENDOR)),
+                reinterpret_cast<const char *>(glGetString(GL_RENDERER)),
+                reinterpret_cast<const char *>(glGetString(GL_VERSION)));
+    std::fflush(stdout);
     auto src = read(path);
     GLuint vs = shader(GL_VERTEX_SHADER,
                        "#version 410 core\n#define VERTEX\n" + src),
@@ -266,7 +274,7 @@ struct Reference {
     auto upload = [&](GLuint texture, const std::string &path) {
       SDL_Surface *loaded =
           path.empty() ? SDL_CreateSurface(1, 1, SDL_PIXELFORMAT_RGBA32)
-                       : IMG_Load(path.c_str());
+                       : pp::load_image_rgba(path.c_str());
       check(loaded, "reference composition asset");
       if (path.empty())
         SDL_ClearSurface(loaded, 0, 0, 0, 0);
@@ -349,7 +357,7 @@ struct Reference {
 int main(int argc, char **argv) {
   check(argc >= 3,
         "usage: postprocessreferencetest RESOURCE_PATH ARTIFACT_PATH");
-  bool benchmark = false, boundary_probes = false;
+  bool benchmark = false, boundary_probes = false, all_images = false;
   std::string export_goldens;
   for (int i = 3; i < argc; ++i) {
     if (std::string(argv[i]) == "--export-goldens") {
@@ -360,6 +368,7 @@ int main(int argc, char **argv) {
     require_gpu |= std::string(argv[i]) == "--require-gpu";
     benchmark |= std::string(argv[i]) == "--benchmark";
     boundary_probes |= std::string(argv[i]) == "--boundary-probes";
+    all_images |= std::string(argv[i]) == "--all-images";
   }
   if (!SDL_Init(SDL_INIT_VIDEO))
     unavailable("SDL video initialization");
@@ -418,14 +427,22 @@ int main(int argc, char **argv) {
   add("zoomed_mask", [](auto &s) {
     s.p_i_maskType = 2;
     s.p_b_slot = true;
-    s.p_v_zoom = {.713f, .713f};
+    // Even raster bounds keep derivative pairs inside the original quad;
+    // this scale also avoids repeated exact mask-phase ties.
+    s.p_v_zoom = {.70931f, .70931f};
   });
-  if (boundary_probes)
+  if (boundary_probes) {
+    add("boundary_derivative_zoom", [](auto &s) {
+      s.p_i_maskType = 2;
+      s.p_b_slot = true;
+      s.p_v_zoom = {.713f, .713f};
+    });
     add("boundary_zoomed_mask", [](auto &s) {
       s.p_i_maskType = 2;
       s.p_b_slot = true;
       s.p_v_zoom = {.75f, .75f};
     });
+  }
   add("black_level", [](auto &s) { s.p_f_black = .04f; });
   add("mask_alternate", [](auto &s) {
     s.p_i_maskType = 1;
@@ -691,9 +708,10 @@ int main(int argc, char **argv) {
       std::printf(
           "%-24s %d mean %.4f rms %.4f p99 %.0f max %d >3 %.3f%% SSIM %.6f\n",
           name.c_str(), seq, m.mean, m.rms, m.p99, m.max, m.changed, m.ssim);
-      if (seq == 3) {
-        save(std::string(argv[2]) + "/" + name + "-reference.bmp", expected);
-        save(std::string(argv[2]) + "/" + name + "-metal.bmp", actual);
+      if (all_images || !within_tolerance(name, m)) {
+        auto prefix = std::string(argv[2]) + "/" + name + "-" + std::to_string(seq);
+        save(prefix + "-reference.png", expected);
+        save(prefix + "-metal.png", actual);
       }
       if (!bezel_path.empty()) {
         auto *composed_surface = port.capture_processed();
@@ -721,10 +739,11 @@ int main(int argc, char **argv) {
                     "%.3f%% SSIM %.6f\n",
                     name.c_str(), seq, c.mean, c.rms, c.p99, c.max, c.changed,
                     c.ssim);
-        if (seq == 3) {
-          save(std::string(argv[2]) + "/compose_" + name + "-reference.bmp",
+        if (all_images || !within_tolerance("compose_" + name, c)) {
+          auto prefix = std::string(argv[2]) + "/compose_" + name + "-" + std::to_string(seq);
+          save(prefix + "-reference.png",
                composition_reference);
-          save(std::string(argv[2]) + "/compose_" + name + "-metal.bmp",
+          save(prefix + "-metal.png",
                composed);
         }
       }

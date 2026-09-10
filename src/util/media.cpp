@@ -258,7 +258,7 @@ int display_2mg_header(format_2mg_t& hdr) {
     const char* filename = lastSeparator ? lastSeparator + 1 : pathname;
     
     // Allocate memory for the new string and copy the filename
-    char* result = strndup(filename, 18); // limit to 16 characters.
+    char* result = gs2_strndup(filename, 18); // limit to 16 characters.
     return result;
 } */
 

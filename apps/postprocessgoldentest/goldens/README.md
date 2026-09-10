@@ -1,4 +1,4 @@
-These lossless GPU reference images were generated from the unchanged SuperDuperDisplay CRT and bezel shaders identified in `manifest.json`. They are test-only resources.
+These lossless GPU reference images were generated from the unchanged SuperDuperDisplay CRT and bezel shaders identified in `manifest.json`. They are test-only resources. PNG assets are decoded as exact straight-alpha bytes, matching the original application's stb decoder; native ImageIO premultiplication shortcuts are bypassed.
 
 The manifest contains all settings, timestamps, input phases and asset references needed to replay the cases. `apps/postprocessfixtures/Fixture.hpp` supplies identical source pixels and the shared comparison metrics. Goldens must be regenerated from `postprocessreferencetest`'s original OpenGL readbacks, never from the production renderer.
 

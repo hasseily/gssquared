@@ -31,6 +31,7 @@ def main() -> None:
     parser.add_argument("--build", type=Path, default=Path("build-web"))
     parser.add_argument("--output", type=Path, default=Path("build-web/smoke"))
     parser.add_argument("--browser", choices=("chromium", "firefox", "webkit"), default="chromium")
+    parser.add_argument("--headed", action="store_true", help="Use a display window (Xvfb on headless Linux)")
     parser.add_argument("--browser-executable", type=Path,
                         help="Optional existing executable for the selected browser engine")
     parser.add_argument("--golden-only", action="store_true",
@@ -83,7 +84,7 @@ def main() -> None:
             ] if args.browser == "chromium" else []
             browser = getattr(playwright, args.browser).launch(
                 executable_path=str(args.browser_executable) if args.browser_executable else None,
-                args=launch_args)
+                args=launch_args, headless=not args.headed)
             page = browser.new_page(viewport={"width": 1288, "height": 928})
             page.on("console", lambda msg: logs.append(f"{msg.type}: {msg.text}"))
             page.on("pageerror", lambda error: page_errors.append(str(error)))
@@ -98,6 +99,11 @@ def main() -> None:
                     page.wait_for_function("window.gs2GoldenTest && ['passed', 'failed'].includes(window.gs2GoldenTest.status)",
                                            timeout=120_000)
                     result = page.evaluate("window.gs2GoldenTest")
+                    result["renderer"] = page.evaluate("""() => {
+                        const gl = document.getElementById('canvas').getContext('webgl2');
+                        const info = gl.getExtension('WEBGL_debug_renderer_info');
+                        return gl.getParameter(info ? info.UNMASKED_RENDERER_WEBGL : gl.RENDERER);
+                    }""")
                     artifacts = page.evaluate(r"""() => {
                         if (!FS.analyzePath('/golden-artifacts').exists) return {};
                         const result = {};
@@ -133,10 +139,36 @@ def main() -> None:
                 failures = [line for line in logs if any(term in line for term in
                     ("Postprocessing shader:", "Postprocessing shader link:", "Postprocessing unavailable", "Postprocessing presentation failed"))]
                 assert not failures, failures
-                page.locator("#canvas").screenshot(path=str(args.output / "effects-on.png"))
+                # Check geometry explicitly: element screenshot stability waits
+                # can time out while a software WebGL renderer keeps animating.
+                # A moving canvas must still fail, not be hidden by crop capture.
+                bounds = page.evaluate("""async () => {
+                    const samples = [];
+                    for (let i = 0; i < 6; ++i) {
+                        const canvas = document.getElementById('canvas');
+                        const r = canvas.getBoundingClientRect();
+                        samples.push({x:r.x, y:r.y, width:r.width, height:r.height,
+                                      backingWidth:canvas.width, backingHeight:canvas.height,
+                                      dpr:devicePixelRatio});
+                        await new Promise(resolve => setTimeout(resolve, 100));
+                    }
+                    return samples;
+                }""")
+                logs.append("canvas bounds: " + json.dumps(bounds))
+                assert all(abs(sample[key] - bounds[0][key]) < 0.5
+                           for sample in bounds for key in ("x", "y", "width", "height", "backingWidth", "backingHeight")), "Canvas geometry oscillates: " + repr(bounds)
+                assert abs(bounds[0]["backingWidth"] - bounds[0]["width"] * bounds[0]["dpr"]) <= 1, "Canvas backing width does not match viewport density: " + repr(bounds[0])
+                assert abs(bounds[0]["backingHeight"] - bounds[0]["height"] * bounds[0]["dpr"]) <= 1, "Canvas backing height does not match viewport density: " + repr(bounds[0])
+
+                def capture_canvas(name: str) -> None:
+                    box = page.locator("#canvas").bounding_box()
+                    assert box is not None and box["width"] > 0 and box["height"] > 0
+                    page.screenshot(path=str(args.output / name), clip=box, scale="css")
+
+                capture_canvas("effects-on.png")
                 page.keyboard.press("F7")
                 page.wait_for_timeout(1000)
-                page.locator("#canvas").screenshot(path=str(args.output / "effects-toggled.png"))
+                capture_canvas("effects-toggled.png")
                 rendered = Image.open(args.output / "effects-on.png").convert("RGB")
                 assert max(hi - lo for lo, hi in rendered.getextrema()) > 32, "Canvas is blank"
                 toggled = Image.open(args.output / "effects-toggled.png").convert("RGB")
@@ -154,7 +186,7 @@ def main() -> None:
                 page.set_viewport_size({"width": 960, "height": 720})
                 page.wait_for_timeout(1000)
                 assert page.evaluate("[Module.canvas.width, Module.canvas.height]") != previous_size, "Canvas backing buffer did not resize"
-                page.locator("#canvas").screenshot(path=str(args.output / "resized.png"))
+                capture_canvas("resized.png")
                 assert not page_errors, page_errors
                 # Recover the real browser context with effects and the live
                 # settings panel visible. The application checks guest RAM/PC
@@ -200,11 +232,11 @@ def main() -> None:
                 click_action(2)  # Save new
                 page.wait_for_timeout(600)
                 assert page.evaluate("FS.readdir('/postprocess/presets').filter(name => name.endsWith('.json')).length") == saved_count + 1
-                page.locator("#canvas").screenshot(path=str(args.output / "controls-before-scroll.png"))
+                capture_canvas("controls-before-scroll.png")
                 page.mouse.move(panel_x + 200, panel_y + 350)
                 page.mouse.wheel(0, 400)
                 page.wait_for_timeout(300)
-                page.locator("#canvas").screenshot(path=str(args.output / "controls-scrolled.png"))
+                capture_canvas("controls-scrolled.png")
                 before_scroll = Image.open(args.output / "controls-before-scroll.png").convert("RGB")
                 after_scroll = Image.open(args.output / "controls-scrolled.png").convert("RGB")
                 controls_area = (int(panel_x - canvas_box["x"] + 20), int(panel_y - canvas_box["y"] + 195),
@@ -238,7 +270,7 @@ def main() -> None:
                 assert json.loads(export_path.read_text())["preset_name"] == imported["preset_name"], "Browser export differs from the active preset"
                 page.wait_for_function("!Module.gs2PostprocessSyncBusy && !Module.gs2PostprocessSyncDirty")
                 page.wait_for_timeout(600)
-                page.locator("#canvas").screenshot(path=str(args.output / "settings-open.png"))
+                capture_canvas("settings-open.png")
                 previous_recoveries = page.evaluate("Module.ccall('gs2_webgl_recovery_count', 'number', [], [])")
                 page.evaluate("""() => {
                     const gl = document.getElementById('canvas').getContext('webgl2');
@@ -254,7 +286,7 @@ def main() -> None:
                     arg=previous_recoveries, timeout=30_000)
                 assert page.evaluate("Module.ccall('gs2_webgl_preserved_state', 'number', [], [])") == 1, "Context recovery changed guest RAM/PC"
                 page.wait_for_timeout(1000)
-                page.locator("#canvas").screenshot(path=str(args.output / "context-restored.png"))
+                capture_canvas("context-restored.png")
                 restored = Image.open(args.output / "context-restored.png").convert("RGB")
                 assert max(hi - lo for lo, hi in restored.getextrema()) > 32, "Restored canvas is blank"
                 panel = Image.open(args.output / "settings-open.png").convert("RGB")
@@ -271,7 +303,7 @@ def main() -> None:
                 assert not any("Postprocessing unavailable" in line or "Postprocessing presentation failed" in line for line in logs), logs
                 print(json.dumps({"browser": args.browser, "backend": version, "preset_persistence": "retained after reload", "context_recovery": "guest state and settings panel retained", "screenshots": str(args.output)}, indent=2))
             finally:
-                page.screenshot(path=str(args.output / "final-page.png"))
+                page.screenshot(path=str(args.output / "final-page.png"), scale="css")
                 browser.close()
     finally:
         (args.output / "console.log").write_text("\n".join(logs + page_errors) + "\n")

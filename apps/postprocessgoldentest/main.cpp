@@ -1,6 +1,7 @@
 // Replays unchanged original-shader golden outputs on each production backend.
 #include "../../third_party/nlohmann/json.hpp"
 #include "../postprocessfixtures/Fixture.hpp"
+#include "display/postprocess/ImageLoader.hpp"
 #include "display/postprocess/PostProcessPreset.hpp"
 #include "display/postprocess/PostProcessor.hpp"
 #include "gs2.hpp"
@@ -65,6 +66,26 @@ struct GoldenTest {
     require(manifest.at("width") == fx::W && manifest.at("height") == fx::H,
             "golden dimensions");
     require(manifest.at("cases").size() == 16, "complete portable case set");
+    // Keep identical asset bytes across platform image decoders. In
+    // particular alpha zero must not erase RGB used at reflection boundaries.
+    auto check_asset = [&](const char *name, int x, int y,
+                           std::array<Uint8, 4> expected) {
+      std::unique_ptr<SDL_Surface, decltype(&SDL_DestroySurface)> source(
+          pp::load_image_rgba((goldens / name).string().c_str()),
+          SDL_DestroySurface);
+      require(bool(source), "decode fixture asset");
+      std::unique_ptr<SDL_Surface, decltype(&SDL_DestroySurface)> rgba(
+          SDL_ConvertSurface(source.get(), SDL_PIXELFORMAT_RGBA32),
+          SDL_DestroySurface);
+      require(bool(rgba), "fixture asset RGBA");
+      require(x < rgba->w && y < rgba->h, "fixture asset sample dimensions");
+      const auto *pixel =
+          static_cast<const Uint8 *>(rgba->pixels) + y * rgba->pitch + x * 4;
+      require(std::equal(expected.begin(), expected.end(), pixel),
+              "preserve exact straight-alpha asset bytes");
+    };
+    check_asset("synthetic-bezel.png", 50, 40, {80, 75, 55, 0});
+    check_asset("synthetic-glass.glass.png", 10, 10, {70, 120, 180, 64});
     window.reset(SDL_CreateWindow("Postprocessing backend parity", fx::W, fx::H,
                                   SDL_WINDOW_HIDDEN));
     require(bool(window), "test window");
@@ -77,6 +98,14 @@ struct GoldenTest {
       require(processor->device() != nullptr, "native GPU backend selection");
     backend = processor->status();
     std::puts(backend.c_str());
+#ifndef __EMSCRIPTEN__
+    if (auto *device = processor->device()) {
+      const char *device_name =
+          SDL_GetStringProperty(SDL_GetGPUDeviceProperties(device),
+                                SDL_PROP_GPU_DEVICE_NAME_STRING, "unavailable");
+      std::printf("Native GPU device: %s\n", device_name);
+    }
+#endif
     auto *renderer = processor->renderer();
     texture.reset(SDL_CreateTexture(renderer, SDL_PIXELFORMAT_RGBA32,
                                     SDL_TEXTUREACCESS_STREAMING, fx::W, fx::H));
@@ -152,7 +181,8 @@ struct GoldenTest {
       return advance_frame();
     auto actual = pixels(processor->capture_processed());
     const auto filename = expected_frame.at("image").get<std::string>();
-    auto reference = pixels(IMG_Load((goldens / filename).string().c_str()));
+    auto reference =
+        pixels(pp::load_image_rgba((goldens / filename).string().c_str()));
     auto metric = fx::compare(actual, reference);
     const auto name = entry.at("name").get<std::string>();
     const bool okay = fx::within_tolerance(name, metric);

@@ -8,6 +8,6 @@ add_dependencies(postprocessreferencetest assemble_resources)
 add_test(NAME postprocess_reference
     COMMAND postprocessreferencetest
         "${CMAKE_BINARY_DIR}/resources"
-        "${CMAKE_BINARY_DIR}/postprocess-reference-artifacts"
+        "${CMAKE_BINARY_DIR}/smoke/reference"
 )
 set_tests_properties(postprocess_reference PROPERTIES SKIP_RETURN_CODE 77)
