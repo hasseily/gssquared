@@ -10,6 +10,7 @@
 #include "util/Event.hpp"
 #include <cmath>
 #include "util/dialog.hpp"
+#include "util/MenuInterface.h"
 #include "display/shaders/GpuShaderLoader.hpp"
 
 video_system_t::video_system_t(computer_t *computer) {
@@ -33,11 +34,20 @@ video_system_t::video_system_t(computer_t *computer) {
     window_height = (BASE_HEIGHT + border_height*2) * SCALE_Y;
     aspect_ratio = (float)window_width / (float)window_height;
 
+#ifdef __EMSCRIPTEN__
+    // Preserve ES3 when SDL creates its GLES renderer (required by WebGL2).
+    SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK,SDL_GL_CONTEXT_PROFILE_ES);
+    SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION,3);
+    SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION,0);
+#endif
     window = SDL_CreateWindow(
         "GSSquared - Apple ][ Emulator", 
         (BASE_WIDTH + border_width*2) * SCALE_X, 
         (BASE_HEIGHT + border_height*2) * SCALE_Y, 
         SDL_WINDOW_RESIZABLE | SDL_WINDOW_HIGH_PIXEL_DENSITY
+#ifdef __EMSCRIPTEN__
+        | SDL_WINDOW_OPENGL
+#endif
     );
 
     if (!window) {
@@ -56,29 +66,14 @@ video_system_t::video_system_t(computer_t *computer) {
         printf("Render driver %d: %s\n", i, name);
     } */
 
-    // Prefer the SDL GPU-backed renderer so we can attach custom fragment
-    // shaders (CRT post-processing). macOS uses Metal/MSL; Windows uses
-    // D3D12/DXIL; Linux uses Vulkan/SPIR-V. If none of those backends is
-    // available, fall back to the classic renderer; gpu_device stays null
-    // and CRT shader effects are disabled.
-    renderer = SDL_CreateGPURenderer(window,
-        SDL_GPU_SHADERFORMAT_MSL | SDL_GPU_SHADERFORMAT_DXIL | SDL_GPU_SHADERFORMAT_SPIRV, &gpu_device);
-    if (!renderer) {
-        printf("GPU renderer unavailable (%s); falling back to classic renderer\n", SDL_GetError());
-        gpu_device = nullptr;
-    }
-    if (!renderer) {
-        renderer = SDL_CreateRenderer(window, NULL);
-    }
-
-    if (!renderer) {
-        fprintf(stderr, "Error creating renderer: %s\n", SDL_GetError());
-    }
-
-    const char *rname = SDL_GetRendererName(renderer);
-    printf("Renderer: %s (GPU device: %s)\n", rname, gpu_device ? "yes" : "no");
-
-    init_crt_shader();
+    postprocessor = std::make_unique<gs2::postprocess::PostProcessor>(window);
+    renderer = postprocessor->renderer();
+    gpu_device = postprocessor->device();
+    if (!renderer) system_failure("Failed to create video renderer");
+    int initial_w = 0, initial_h = 0;
+    SDL_GetWindowSizeInPixels(window, &initial_w, &initial_h);
+    postprocessor->begin_scene(initial_w, initial_h);
+    printf("%s\n", postprocessor->status().c_str());
 
     screencap_texture = SDL_CreateTexture(renderer, PIXEL_FORMAT, SDL_TEXTUREACCESS_TARGET, 910, 263);
     if (!screencap_texture) {
@@ -137,7 +132,7 @@ video_system_t::video_system_t(computer_t *computer) {
             return true;
         }
         if (key == SDLK_F7) {
-            toggle_crt_shader();
+            getMenuInterface()->toggleCrtShader();
             return true;
         }
         if (key == SDLK_PRINTSCREEN) {
@@ -152,12 +147,12 @@ video_system_t::video_system_t(computer_t *computer) {
     computer->sys_event->registerHandler(SDL_EVENT_KEY_DOWN, [this, computer](const SDL_Event &event) {
         int key = event.key.key;
         switch (key) {
+            case SDLK_F7:
             case SDLK_F3:
             case SDLK_F1:
             case SDLK_F5:
             case SDLK_F2:
             case SDLK_F6:
-            case SDLK_F7:
                 return true; // eat the keydown
             case SDLK_PRINTSCREEN:
                 if (event.key.mod & SDL_KMOD_SHIFT) {
@@ -183,70 +178,12 @@ video_system_t::~video_system_t() {
         delete screenshot_writer;
         screenshot_writer = nullptr;
     }
-    if (scene_target) SDL_DestroyTexture(scene_target);
-    if (crt_state) SDL_DestroyGPURenderState(crt_state);
-    if (crt_shader && gpu_device) SDL_ReleaseGPUShader(gpu_device, crt_shader);
-    if (renderer) SDL_DestroyRenderer(renderer);
+    if (guest_overlay_texture) SDL_DestroyTexture(guest_overlay_texture);
+    postprocessor.reset();
+    renderer = nullptr; gpu_device = nullptr;
     if (window) SDL_DestroyWindow(window);
     if (clip) delete clip;
     SDL_Quit();
-}
-
-// Fragment-shader uniform block for the CRT effect (matches the shader's
-// cbuffer: float2 resolution). Padded to 16 bytes for D3D12 cbuffer alignment.
-struct crt_uniforms_t {
-    float texture_width;
-    float texture_height;
-    float pad0;
-    float pad1;
-};
-
-bool video_system_t::init_crt_shader() {
-    if (!gpu_device) {
-        return false; // classic renderer: no shader support.
-    }
-
-    SDL_GPUShaderFormat formats = SDL_GetGPUShaderFormats(gpu_device);
-    const char *shader_path = nullptr;
-    const char *entrypoint = nullptr;
-    if (formats & SDL_GPU_SHADERFORMAT_MSL) {
-        shader_path = "shaders/crt.frag.metal";
-        entrypoint = nullptr; // Metal default: main0
-    } else if (formats & SDL_GPU_SHADERFORMAT_DXIL) {
-        shader_path = "shaders/crt.frag.dxil";
-        entrypoint = "main";
-    } else if (formats & SDL_GPU_SHADERFORMAT_SPIRV) {
-        shader_path = "shaders/crt.frag.spv";
-        entrypoint = "main";
-    } else {
-        printf("CRT shader: no supported shader format (need MSL, DXIL, or SPIR-V); shader disabled\n");
-        return false;
-    }
-
-    crt_shader = create_gpu_shader_from_resource(
-        gpu_device,
-        shader_path,
-        SDL_GPU_SHADERSTAGE_FRAGMENT,
-        1,
-        1,
-        entrypoint);
-    if (!crt_shader) {
-        return false;
-    }
-
-    SDL_GPURenderStateDesc desc;
-    SDL_INIT_INTERFACE(&desc);
-    desc.fragment_shader = crt_shader;
-    crt_state = SDL_CreateGPURenderState(renderer, &desc);
-    if (!crt_state) {
-        printf("CRT shader: SDL_CreateGPURenderState failed: %s\n", SDL_GetError());
-        SDL_ReleaseGPUShader(gpu_device, crt_shader);
-        crt_shader = nullptr;
-        return false;
-    }
-
-    printf("CRT shader: initialized\n");
-    return true;
 }
 
 void video_system_t::present() {
@@ -254,7 +191,7 @@ void video_system_t::present() {
     if (screenshot_writer) {
         screenshot_writer->poll(event_queue);
     }
-    SDL_RenderPresent(renderer);
+    postprocessor->present();
 }
 
 void video_system_t::set_window_title(const char *title) {
@@ -353,34 +290,17 @@ void video_system_t::calculate_target_rect(int new_w, int new_h) {
 
 void video_system_t::update_target_from_output() {
     int pixel_w = 0, pixel_h = 0;
-    SDL_GetCurrentRenderOutputSize(renderer, &pixel_w, &pixel_h);
+    SDL_GetWindowSizeInPixels(window, &pixel_w, &pixel_h);
     calculate_target_rect(pixel_w, pixel_h);
     ensure_scene_target(pixel_w, pixel_h);
 }
 
 void video_system_t::ensure_scene_target(int w, int h) {
-    if (!crt_state) {
-        return; // shader unavailable: scene_target is never used.
+    if (postprocessor) {
+        postprocessor->begin_scene(w, h);
+        scene_target = postprocessor->scene_target();
+        scene_target_w = w; scene_target_h = h;
     }
-    if (w <= 0 || h <= 0) {
-        return;
-    }
-    if (scene_target && scene_target_w == w && scene_target_h == h) {
-        return; // already the right size.
-    }
-    if (scene_target) {
-        SDL_DestroyTexture(scene_target);
-        scene_target = nullptr;
-    }
-    scene_target = SDL_CreateTexture(renderer, PIXEL_FORMAT, SDL_TEXTUREACCESS_TARGET, w, h);
-    if (!scene_target) {
-        printf("CRT shader: failed to create scene_target %dx%d: %s\n", w, h, SDL_GetError());
-        scene_target_w = scene_target_h = 0;
-        return;
-    }
-    SDL_SetTextureBlendMode(scene_target, SDL_BLENDMODE_NONE);
-    scene_target_w = w;
-    scene_target_h = h;
 }
 
 void video_system_t::window_resize(const SDL_Event &event) {
@@ -503,6 +423,7 @@ void video_system_t::set_crt_shader_enabled(bool enabled, bool show_message) {
         return;
     }
     crt_shader_enabled = enabled;
+    postprocessor->set_enabled(enabled);
     if (show_message) {
         event_queue->addEvent(new Event(EVENT_SHOW_MESSAGE, 0,
             crt_shader_enabled ? "CRT Shader On" : "CRT Shader Off"));
@@ -510,15 +431,7 @@ void video_system_t::set_crt_shader_enabled(bool enabled, bool show_message) {
 }
 
 void video_system_t::show_crt_shader_unavailable() {
-    const char *message;
-    if (!gpu_device) {
-        message = "CRT Shader unavailable (GPU renderer could not be initialized)";
-    } else if (!crt_shader) {
-        message = "CRT Shader unavailable (failed to load shader source)";
-    } else {
-        message = "CRT Shader unavailable (failed to create shader render state)";
-    }
-    event_queue->addEvent(new Event(EVENT_SHOW_MESSAGE, 0, message));
+    event_queue->addEvent(new Event(EVENT_SHOW_MESSAGE, 0, postprocessor->status().c_str()));
 }
 
 void video_system_t::toggle_crt_shader() {
@@ -529,26 +442,37 @@ void video_system_t::toggle_crt_shader() {
     set_crt_shader_enabled(!crt_shader_enabled, true);
 }
 
-SDL_Surface *video_system_t::capture_screen_surface() {
-    if (!last_texture || !screencap_texture) {
-        return nullptr;
+SDL_Surface *video_system_t::capture_screen_surface(bool* double_vertical) {
+    if(double_vertical) *double_vertical=!postprocessor->available() && last_srcrect.h<=263;
+    if(postprocessor->available()) return postprocessor->capture_processed();
+    if (!last_texture) return nullptr;
+    const int needed_w=std::max(1,int(std::ceil(last_srcrect.x+last_srcrect.w)));
+    const int needed_h=std::max(1,int(std::ceil(last_srcrect.y+last_srcrect.h)));
+    float capture_w=0,capture_h=0;
+    if(screencap_texture) SDL_GetTextureSize(screencap_texture,&capture_w,&capture_h);
+    if(capture_w<needed_w||capture_h<needed_h){
+        if(screencap_texture) SDL_DestroyTexture(screencap_texture);
+        screencap_texture=SDL_CreateTexture(renderer,PIXEL_FORMAT,SDL_TEXTUREACCESS_TARGET,needed_w,needed_h);
+        if(!screencap_texture)return nullptr;
     }
     SDL_Rect srect = { (int)last_srcrect.x, (int)last_srcrect.y, (int)last_srcrect.w, (int)last_srcrect.h };
     SDL_FRect trect = { last_srcrect.x, last_srcrect.y, last_srcrect.w, last_srcrect.h };
+    SDL_Texture* previous_target = SDL_GetRenderTarget(renderer);
     SDL_SetRenderTarget(renderer, screencap_texture);
     SDL_SetTextureBlendMode(last_texture, SDL_BLENDMODE_NONE);
     SDL_RenderTexture(renderer, last_texture, &trect, &trect); // ensure no scaling.
     SDL_Surface *surface = SDL_RenderReadPixels(renderer, &srect);
-    SDL_SetRenderTarget(renderer, nullptr);
+    SDL_SetRenderTarget(renderer, previous_target);
     return surface;
 }
 
 void video_system_t::copy_screen() {
-    SDL_Surface *surface = capture_screen_surface();
+    bool double_vertical = false;
+    SDL_Surface *surface = capture_screen_surface(&double_vertical);
     if (!surface) {
         return;
     }
-    clip->Clip(surface);
+    clip->Clip(surface, double_vertical);
     SDL_DestroySurface(surface);
 }
 
@@ -560,13 +484,14 @@ void video_system_t::save_screenshot() {
         event_queue->addEvent(new Event(EVENT_SHOW_MESSAGE, 0, "Screenshot busy"));
         return;
     }
-    SDL_Surface *surface = capture_screen_surface();
+    bool double_vertical = false;
+    SDL_Surface *surface = capture_screen_surface(&double_vertical);
     if (!surface) {
         event_queue->addEvent(new Event(EVENT_SHOW_MESSAGE, 0, "Screenshot capture failed"));
         return;
     }
     const std::string path = Paths::make_screenshot_path();
-    if (!screenshot_writer->try_submit(surface, path)) {
+    if (!screenshot_writer->try_submit(surface, path, double_vertical)) {
         event_queue->addEvent(new Event(EVENT_SHOW_MESSAGE, 0, "Screenshot busy"));
     }
     SDL_DestroySurface(surface);
@@ -577,47 +502,69 @@ void video_system_t::register_frame_processor(int weight, FrameHandler handler) 
 }
 
 void video_system_t::update_display(bool force_full_frame) {
-    // When the CRT shader is active, draw the emulator frame into the offscreen
-    // scene_target so it can be post-processed during present_scene(). Otherwise
-    // draw straight to the swapchain exactly as before.
-    bool use_scene = crt_shader_enabled && crt_state && scene_target;
-    if (use_scene) {
-        SDL_SetRenderTarget(renderer, scene_target);
-    }
-
-    clear(); // clear the current render target (scene_target or swapchain).
-
-    for (const auto& pair : frame_handlers) {
-        if (pair.second(force_full_frame)) {
-            break; // Stop processing if handler returns true
+    int w=0,h=0; SDL_GetWindowSizeInPixels(window,&w,&h);
+    if (w<=0 || h<=0) return;
+    ensure_scene_target(w,h);
+    SDL_SetRenderDrawColor(renderer,0,0,0,255);
+    clear();
+    for (const auto& pair : frame_handlers) if (pair.second(force_full_frame)) break;
+    if (guest_overlay_provider) {
+        const auto overlay=guest_overlay_provider();
+        if (overlay.visible && overlay.pixels && overlay.width>0 && overlay.height>0) {
+            if (!guest_overlay_texture || guest_overlay_width!=overlay.width || guest_overlay_height!=overlay.height) {
+                if (guest_overlay_texture) SDL_DestroyTexture(guest_overlay_texture);
+                guest_overlay_texture=SDL_CreateTexture(renderer,SDL_PIXELFORMAT_RGBA32,SDL_TEXTUREACCESS_STREAMING,overlay.width,overlay.height);
+                guest_overlay_width=overlay.width;guest_overlay_height=overlay.height;guest_overlay_generation=UINT64_MAX;
+                if (guest_overlay_texture) {
+                    SDL_SetTextureBlendMode(guest_overlay_texture,SDL_BLENDMODE_BLEND);
+                    SDL_SetTextureScaleMode(guest_overlay_texture,SDL_SCALEMODE_NEAREST);
+                }
+            }
+            if (guest_overlay_texture) {
+                if (guest_overlay_generation!=overlay.generation) {
+                    SDL_UpdateTexture(guest_overlay_texture,nullptr,overlay.pixels,overlay.width*4);
+                    guest_overlay_generation=overlay.generation;
+                }
+                const SDL_FRect rect=content.w>0 && content.h>0 ? content : target;
+                SDL_RenderTexture(renderer,guest_overlay_texture,nullptr,&rect);
+            }
         }
-    }
-
-    if (use_scene) {
-        SDL_SetRenderTarget(renderer, nullptr);
     }
 }
 
 void video_system_t::present_scene() {
-    if (!(crt_shader_enabled && crt_state && scene_target)) {
-        return; // shader disabled/unavailable: update_display drew to the swapchain.
-    }
-    // Feed the CRT shader a resolution that matches the emulated source texture
-    // mapped into scene_target. The shader tiles resolution.y/2 bands across the
-    // full texture; scale Y by the content-to-source ratio so each band aligns
-    // with one source scanline (last_srcrect.h lines in target.h pixels).
-    // Scale X similarly so the RGB grille tracks source pixels.
-    const float content_w = target.w > 0.0f ? target.w : (float)scene_target_w;
-    const float content_h = target.h > 0.0f ? target.h : (float)scene_target_h;
-    const float src_w = last_srcrect.w > 0.0f ? last_srcrect.w : content_w;
-    const float src_h = last_srcrect.h > 0.0f ? last_srcrect.h : content_h;
-    crt_uniforms_t uniforms = {};
-    uniforms.texture_width = (float)scene_target_w * src_w / content_w;
-    uniforms.texture_height = 2.0f * (float)scene_target_h * src_h / content_h;
-    SDL_SetGPURenderStateFragmentUniforms(crt_state, 0, &uniforms, sizeof(uniforms));
+    gs2::postprocess::FrameView frame;
+    frame.source_width=std::max(1,static_cast<int>(last_srcrect.w));
+    frame.source_height=std::max(1,static_cast<int>(last_srcrect.h));
+    if(scene_target_w>0 && scene_target_h>0 && target.w>0 && target.h>0)
+        frame.source_region={target.x/scene_target_w,target.y/scene_target_h,target.w/scene_target_w,target.h/scene_target_h};
+    postprocessor->begin_ui(frame);
+}
 
-    // Blit the offscreen scene onto the swapchain 1:1 through the CRT shader.
-    SDL_SetRenderGPUState(renderer, crt_state);
-    SDL_RenderTexture(renderer, scene_target, nullptr, nullptr);
-    SDL_SetRenderGPUState(renderer, nullptr);
+void video_system_t::release_postprocessor() {
+    if(screencap_texture) SDL_DestroyTexture(screencap_texture);
+    screencap_texture=nullptr;
+    if(guest_overlay_texture) SDL_DestroyTexture(guest_overlay_texture);
+    guest_overlay_texture=nullptr;guest_overlay_generation=UINT64_MAX;
+    last_texture=nullptr;scene_target=nullptr;
+    postprocessor->release_renderer();renderer=nullptr;gpu_device=nullptr;
+}
+
+bool video_system_t::recreate_postprocessor() {
+    release_postprocessor();
+    bool okay=postprocessor->recreate();
+    renderer=postprocessor->renderer();gpu_device=postprocessor->device();
+    int w=0,h=0;SDL_GetWindowSizeInPixels(window,&w,&h);
+    ensure_scene_target(w,h);
+    return okay;
+}
+
+void video_system_t::begin_host_ui() {
+    int w=0,h=0;SDL_GetWindowSizeInPixels(window,&w,&h);
+    ensure_scene_target(w,h);
+    SDL_SetRenderLogicalPresentation(renderer,0,0,SDL_LOGICAL_PRESENTATION_DISABLED);
+    SDL_SetRenderDrawColor(renderer,0,0,0,255);SDL_RenderClear(renderer);
+    gs2::postprocess::FrameView frame;
+    frame.source_width=w;frame.source_height=h;
+    postprocessor->begin_ui(frame);
 }

@@ -225,9 +225,8 @@ int main(int argc, char *argv[]) {
     }
     SDL_SetWindowAspectRatio(window, 1.8f, 1.8f);
 
-    SDL_GPUDevice *device = nullptr;
-    SDL_Renderer *renderer = SDL_CreateGPURenderer(
-        window, SDL_GPU_SHADERFORMAT_MSL, &device);
+    SDL_GPUDevice *device = SDL_CreateGPUDevice(SDL_GPU_SHADERFORMAT_MSL, false, nullptr);
+    SDL_Renderer *renderer = device ? SDL_CreateGPURenderer(device, window) : nullptr;
     if (renderer == NULL || device == NULL) {
         printf("GPU renderer could not be created! SDL_Error: %s\n", SDL_GetError());
         return 1;
@@ -348,8 +347,7 @@ int main(int argc, char *argv[]) {
         return 1;
     }
 
-    SDL_GPURenderStateDesc desc;
-    SDL_INIT_INTERFACE(&desc);
+    SDL_GPURenderStateCreateInfo desc{};
     desc.fragment_shader = frag_shader;
     desc.num_sampler_bindings = 1;
     desc.sampler_bindings = &glyph_binding;
@@ -406,9 +404,9 @@ int main(int argc, char *argv[]) {
         SDL_SetRenderDrawColor(renderer, 0, 0, 0, 255);
         SDL_RenderClear(renderer);
 
-        SDL_SetRenderGPUState(renderer, gpu_state);
+        SDL_SetGPURenderState(renderer, gpu_state);
         SDL_RenderTexture(renderer, text_tex, NULL, NULL);
-        SDL_SetRenderGPUState(renderer, NULL);
+        SDL_SetGPURenderState(renderer, NULL);
 
         uint64_t raster_end = SDL_GetTicksNS();
 

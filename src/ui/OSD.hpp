@@ -20,6 +20,7 @@
 #include <map>
 
 #include <SDL3/SDL.h>
+#include "display/RendererResource.hpp"
 #include "util/MenuInterface.h"
 #include "MainAtlas.hpp"
 #include "NClock.hpp"
@@ -127,6 +128,7 @@ protected:
     TextRenderer *text_render = nullptr;
     TextRenderer *title_trender = nullptr;
     UIContext ui_ctx;
+    RendererResource renderer_resource_;
 
     /* std::string headsUpMessageText;
     int headsUpMessageCount = 0; */
