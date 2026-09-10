@@ -46,3 +46,15 @@ and 0 restores the prior speed (including the calibrated unlimited multiplier).
 `ignore_c074 = true` suppresses these overrides. NTSC/PAL scanner and audio time
 follow a rational base-clock cadence at 33 MHz; physical TransWarp per-region
 slowdown scheduling is outside this guest-visible control interface.
+
+Appletini video on IIe-family machines implements Video-7 MIX/MONO, C021/C022/
+C029/C034 controls, SHR/SHR4/3200/PAL256 decoding and legacy A2Li page modes.
+Mode 1 weaves fields, mode 2 merges them once, and the FF loader hold preserves
+the previous complete picture while guest software replaces page memory. Mixed
+text tails are taken from their respective pages. Logical scanline and composed-
+field metadata accompany the image, without requiring a new renderer.
+
+`appletinivideotest` checks palettes/modes, Video-7 bit spans, page composition,
+loader hold/reset and mixed tails. The generic scanline safety regression guards
+resynchronization after these RAM-based modes discard the cycle stream. Physical
+120 Hz output scheduling and external-video hardware are not emulated.

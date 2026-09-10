@@ -1022,4 +1022,8 @@ void init_appletini(computer_t *computer, SlotType_t slot)
         delete pdblock_d;
         return true;
     });
+    display_enable_appletini_video(computer);
+    auto *display = static_cast<display_state_t *>(
+        computer->get_module_state(MODULE_DISPLAY));
+    if (display != nullptr) display_update_video_scanner(display);
 }

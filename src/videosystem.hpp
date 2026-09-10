@@ -68,6 +68,8 @@ struct video_system_t {
     // GPU renderer + shader are available (gpu_device and crt_state non-null).
     bool crt_shader_enabled = false;
     SDL_Texture *screencap_texture = nullptr;
+    unsigned logical_scanlines = 0;
+    bool fields_already_composed = false;
     
     display_fullscreen_mode_t display_fullscreen_mode = DISPLAY_WINDOWED_MODE;
     display_color_engine_t display_color_engine = DM_ENGINE_NTSC;
@@ -158,6 +160,8 @@ public:
     // swapchain (through the shader). No-op otherwise. Called once per frame
     // after update_display() and before the OSD is drawn.
     void present_scene();
+    void set_logical_scanlines(unsigned lines) { logical_scanlines = lines; }
+    void set_fields_already_composed(bool composed) { fields_already_composed = composed; }
     void push_mouse_capture(bool capture);
     void pop_mouse_capture();
     RGBA_t get_mono_color() { return mono_color_table[display_mono_color]; };

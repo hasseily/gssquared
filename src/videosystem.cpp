@@ -577,6 +577,8 @@ void video_system_t::register_frame_processor(int weight, FrameHandler handler) 
 }
 
 void video_system_t::update_display(bool force_full_frame) {
+    logical_scanlines = 0;
+    fields_already_composed = false;
     // When the CRT shader is active, draw the emulator frame into the offscreen
     // scene_target so it can be post-processed during present_scene(). Otherwise
     // draw straight to the swapchain exactly as before.
@@ -610,7 +612,8 @@ void video_system_t::present_scene() {
     const float content_w = target.w > 0.0f ? target.w : (float)scene_target_w;
     const float content_h = target.h > 0.0f ? target.h : (float)scene_target_h;
     const float src_w = last_srcrect.w > 0.0f ? last_srcrect.w : content_w;
-    const float src_h = last_srcrect.h > 0.0f ? last_srcrect.h : content_h;
+    const float src_h = logical_scanlines ? static_cast<float>(logical_scanlines) :
+        (last_srcrect.h > 0.0f ? last_srcrect.h : content_h);
     crt_uniforms_t uniforms = {};
     uniforms.texture_width = (float)scene_target_w * src_w / content_w;
     uniforms.texture_height = 2.0f * (float)scene_target_h * src_h / content_h;
