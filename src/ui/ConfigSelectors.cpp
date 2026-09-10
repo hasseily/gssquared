@@ -25,14 +25,18 @@ Style_t config_selector_button_style() {
 
 void populate_speed_selector(Container_t *container, UIContext *ctx, const Style_t& button_style,
                              SelectButton_t **out_btns) {
-    SelectButton_t *btns[5] = {
+    auto *speed_33 = new SelectButton_t(ctx, "33", button_style, CLOCK_33_3MHZ);
+    speed_33->size(50, 50);
+
+    SelectButton_t *btns[6] = {
         new SelectButton_t(ctx, MHz1_0Button, button_style, CLOCK_1_024MHZ),
         new SelectButton_t(ctx, MHz2_8Button, button_style, CLOCK_2_8MHZ),
         new SelectButton_t(ctx, MHz7_159Button, button_style, CLOCK_7_159MHZ),
         new SelectButton_t(ctx, MHz14_318Button, button_style, CLOCK_14_3MHZ),
+        speed_33,
         new SelectButton_t(ctx, MHzInfinityButton, button_style, CLOCK_FREE_RUN),
     };
-    for (int i = 0; i < 5; i++) {
+    for (int i = 0; i < 6; i++) {
         container->add(btns[i]);
         if (out_btns) out_btns[i] = btns[i];
     }
