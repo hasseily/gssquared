@@ -39,6 +39,8 @@ The same test uses the canvas controls to select a preset, type a numeric
 value, scroll, save a new preset, cancel and reopen the import picker, reject
 malformed JSON without interrupting emulation or changing settings, import a
 valid JSON file, and verify the exported browser download.
+Picker checks wait for the completed file read and subsequent UI frame before
+reopening the dialog, including on slower software graphics.
 Playwright WebKit covers that browser engine; it is not a Safari product test.
 Linux CI runs Firefox and Chromium with `--headed` under Xvfb to provide
 Firefox's Mesa GL context and Chromium's live screenshot compositor.

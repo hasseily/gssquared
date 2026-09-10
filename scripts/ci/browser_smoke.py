@@ -209,6 +209,14 @@ def main() -> None:
                 def current_settings() -> dict:
                     return page.evaluate("JSON.parse(FS.readFile('/postprocess/current.json', {encoding:'utf8'}))")
 
+                def wait_picker_completion() -> None:
+                    # FileReader completes asynchronously, and the canvas UI
+                    # consumes its result in the following app frame. A fixed
+                    # delay races that work on software-rendered CI machines.
+                    page.wait_for_function("!document.querySelector('input[type=file]')")
+                    page.wait_for_function("""() => new Promise(resolve =>
+                        requestAnimationFrame(() => requestAnimationFrame(() => resolve(true))))""")
+
                 # Exercise the real canvas controls, including the SDL-to-web
                 # file picker and browser download adapter.
                 click_action(1)  # Next preset
@@ -246,13 +254,13 @@ def main() -> None:
                 with page.expect_file_chooser():
                     click_action(3)  # Import, then cancel
                 page.locator("input[type=file]").dispatch_event("cancel")
-                page.wait_for_timeout(300)
+                wait_picker_completion()
                 settings_before_invalid_import = current_settings()
                 with page.expect_file_chooser() as invalid_picker:
                     click_action(3)
                 invalid_picker.value.set_files({"name": "invalid-preset.json", "mimeType": "application/json",
                                                 "buffer": b'{ invalid json'})
-                page.wait_for_timeout(600)
+                wait_picker_completion()
                 assert not page_errors, page_errors
                 assert current_settings() == settings_before_invalid_import, "Malformed preset changed the active settings"
                 with page.expect_file_chooser() as picker:
@@ -261,7 +269,8 @@ def main() -> None:
                             "p_f_brightness": 1.2, "p_i_maskType": 2}
                 picker.value.set_files({"name": "browser-preset.json", "mimeType": "application/json",
                                         "buffer": json.dumps(imported).encode()})
-                page.wait_for_timeout(600)
+                wait_picker_completion()
+                page.wait_for_function("JSON.parse(FS.readFile('/postprocess/current.json', {encoding:'utf8'})).preset_name === 'CI imported preset'")
                 assert current_settings()["preset_name"] == imported["preset_name"], "Browser preset import did not apply"
                 with page.expect_download() as download:
                     click_action(4)  # Export
