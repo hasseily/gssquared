@@ -95,11 +95,17 @@ page reloads.
   canvas is `document.activeElement`, so input dies after Alt-Tab. The shell
   (`assets/web/shell.html`) re-focuses the canvas on window `focus`/`click`.
   When there is no keyboard focus, SDL still delivers key events but with
-  `windowID == 0`. Emscripten supports only one window, so the debugger's
-  second `SDL_CreateWindow()` returns NULL and its `window_id` is also 0 —
-  `debug_window_t::handle_event()` therefore guards on a valid/nonzero
-  `window_id` so the (nonexistent) debug window doesn't swallow every keystroke
-  meant for the emulator.
+  `windowID == 0`. The debugger's event handler is disabled on the web so those
+  events reach the emulator.
+- **Debugger window**: The desktop debugger UI is not created on the web. SDL
+  maps its windows to the same canvas by default; creating even a hidden second
+  window resizes that canvas and replaces its input handlers, cropping the
+  emulator and menus.
+- **High-DPI menus**: The ImGui overlay uses an explicit framebuffer scale,
+  temporarily disabling the selector/OSD's logical presentation. This keeps
+  text and clipping in the same coordinate space on Retina displays. Selector
+  and editor frames also skip SDL's final letterbox repaint so black margins
+  cannot cover the menu in narrow windows.
 - **Memory**: `INITIAL_MEMORY` is set to 256 MB with `ALLOW_MEMORY_GROWTH`. If a
   large machine (e.g. IIgs) fails to start with an out-of-memory error, raise
   `INITIAL_MEMORY` in the `if(EMSCRIPTEN)` block of `CMakeLists.txt`.

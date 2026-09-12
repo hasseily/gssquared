@@ -1452,7 +1452,9 @@ SDL_AppResult SDL_AppIterate(void *appstate) {
             vs->clear();
             state->select_system->render();
             renderMenuOverlay(vs->renderer, vs->window_width, vs->window_height);
-            vs->present();
+            // The frame is already cleared black. SDL's late letterbox borders
+            // would paint over the menu drawn in window coordinates.
+            vs->present(false);
         }
 
         int system_id = state->select_system->get_selected_system();
@@ -1513,7 +1515,8 @@ SDL_AppResult SDL_AppIterate(void *appstate) {
             vs->clear();
             state->edit_system->render();
             renderMenuOverlay(vs->renderer, vs->window_width, vs->window_height);
-            vs->present();
+            // Keep the window-coordinate menu above the already-black margins.
+            vs->present(false);
         }
 
         int edit_result = state->edit_system->get_result();
