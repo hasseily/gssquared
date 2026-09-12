@@ -26,6 +26,13 @@ debug_window_t::debug_window_t(computer_t *computer) {
 
     panel_visible[DEBUG_PANEL_TRACE] = 1; // all default to off, so enable here.
 
+#if defined(__EMSCRIPTEN__)
+    // SDL maps windows to the same browser canvas by default. Even a hidden
+    // debugger window resizes that canvas and replaces its input handlers.
+    // Keep the debugger's CPU/breakpoint state, without creating its desktop UI.
+    return;
+#endif
+
     // create a new window
     window = SDL_CreateWindow("GSSquared Debugger", window_width, window_height, SDL_WINDOW_RESIZABLE|SDL_WINDOW_HIDDEN);
     // create a new renderer
@@ -1237,7 +1244,7 @@ void debug_window_t::render_pane_memory() {
 void debug_window_t::render() {
     char buffer[256];
 
-    if (!window_open) {
+    if (!window_open || !window || !renderer) {
         return;
     }
 
@@ -1442,11 +1449,8 @@ void debug_window_t::trace_scroll(float y) {
 }
 bool debug_window_t::handle_event(SDL_Event &event) {
 #if defined(__EMSCRIPTEN__)
-    // Emscripten supports only one window, so the debugger has no separate OS
-    // window of its own. Its window_id collides with the main window's events
-    // (and with focusless windowID==0 events), which would swallow every
-    // keystroke meant for the emulator. The debugger isn't usable on the web
-    // anyway, so disable its event handling entirely here.
+    // The debugger's desktop UI is not created on the web. Leave browser input
+    // for the emulator, including focusless events with windowID == 0.
     (void)event;
     return false;
 #else
@@ -1609,6 +1613,9 @@ bool debug_window_t::is_open() {
 }
 
 void debug_window_t::set_open() {
+    if (!window || !renderer) {
+        return;
+    }
     disasm = new Disassembler(mmu, cpu->cpu_type); // used in monitor pane
     step_disasm = new Disassembler(mmu, cpu->cpu_type); // used in trace pane
     monitor_.bind(mmu, &memory_watches, computer->breakpoints, disasm, &debug_displays, cpu->trace_buffer,

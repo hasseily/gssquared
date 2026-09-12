@@ -422,7 +422,25 @@ void renderMenuOverlay(SDL_Renderer *renderer, int /*win_w*/, int /*win_h*/)
     }
 
     ImGui::Render();
-    ImGui_ImplSDLRenderer3_RenderDrawData(ImGui::GetDrawData(), renderer);
+    ImDrawData *draw_data = ImGui::GetDrawData();
+
+    // ImGui uses window coordinates, independently of the selector/OSD's
+    // logical presentation. Give it an explicit framebuffer scale so its SDL
+    // backend scales vertices and clip rectangles together. Inheriting logical
+    // presentation scales clips twice on high-DPI displays, hiding menu items.
+    int logical_w = 0, logical_h = 0;
+    SDL_RendererLogicalPresentation logical_mode;
+    float scale_x = 1.0f, scale_y = 1.0f;
+    SDL_GetRenderLogicalPresentation(renderer, &logical_w, &logical_h, &logical_mode);
+    SDL_GetRenderScale(renderer, &scale_x, &scale_y);
+
+    SDL_SetRenderLogicalPresentation(renderer, 0, 0, SDL_LOGICAL_PRESENTATION_DISABLED);
+    SDL_SetRenderScale(renderer, draw_data->FramebufferScale.x, draw_data->FramebufferScale.y);
+    ImGui_ImplSDLRenderer3_RenderDrawData(draw_data, renderer);
+
+    // The ImGui backend restores viewport and clipping; restore our transforms.
+    SDL_SetRenderScale(renderer, scale_x, scale_y);
+    SDL_SetRenderLogicalPresentation(renderer, logical_w, logical_h, logical_mode);
 }
 
 #endif // __linux__ || __EMSCRIPTEN__

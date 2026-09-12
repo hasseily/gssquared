@@ -245,12 +245,21 @@ bool video_system_t::init_crt_shader() {
     return true;
 }
 
-void video_system_t::present() {
+void video_system_t::present(bool draw_logical_borders) {
     // Drain screenshot worker status on the main thread (SPSC ring → EventQueue).
     if (screenshot_writer) {
         screenshot_writer->poll(event_queue);
     }
+    int logical_w = 0, logical_h = 0;
+    SDL_RendererLogicalPresentation logical_mode = SDL_LOGICAL_PRESENTATION_DISABLED;
+    if (!draw_logical_borders) {
+        SDL_GetRenderLogicalPresentation(renderer, &logical_w, &logical_h, &logical_mode);
+        SDL_SetRenderLogicalPresentation(renderer, 0, 0, SDL_LOGICAL_PRESENTATION_DISABLED);
+    }
     SDL_RenderPresent(renderer);
+    if (!draw_logical_borders) {
+        SDL_SetRenderLogicalPresentation(renderer, logical_w, logical_h, logical_mode);
+    }
 }
 
 void video_system_t::set_window_title(const char *title) {
