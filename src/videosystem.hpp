@@ -131,7 +131,7 @@ public:
     void render_frame(SDL_Texture *texture, SDL_FRect *srcrect, SDL_FRect *dstadj, bool respect_mode = true,
         const SDL_FRect *content_inset_src = nullptr);
     void clear();
-    void present();
+    void present(bool draw_logical_borders = true);
     bool display_capture_mouse(bool capture);
     bool display_capture_mouse_message(bool capture);
     bool is_mouse_captured();
