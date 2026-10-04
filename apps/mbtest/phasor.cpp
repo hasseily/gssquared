@@ -580,6 +580,67 @@ void testAyDecode() {
                     "secondary latch selection is retained for transfers");
 }
 
+// Replay the DOOM GS / Bilestoad four-chip probe behind the $Cn10 VIA:
+// reset, R0 of chip 0 = $55, R0 of chip 1 = $AA, then read chip 0's R0.
+// The tiny AY model follows AY8910s::busCycle (latch, write, read, reset).
+uint8_t replayFourChipProbe(uint8_t mode) {
+    struct Ay {
+        uint8_t latch = 0xFF;
+        uint8_t r0 = 0;
+    } ay[2];
+    PL::AySelection selection{false, false};
+    uint8_t ora = 0;
+    uint8_t ira = 0xFF;
+
+    auto bus = [&](Ay &chip, uint8_t pb) -> int {
+        if ((pb & 0x04) == 0) { chip.latch = 0xFF; chip.r0 = 0; return -1; }
+        switch (pb & 0x03) {
+            case 0x03: chip.latch = ora; return -1;
+            case 0x02: if (chip.latch == 0) chip.r0 = ora; return -1;
+            case 0x01: return chip.latch == 0 ? chip.r0 : -1;
+            default: return -1;
+        }
+    };
+    // DDRB = $1F: PB7-5 are inputs and read high through the pull-ups.
+    auto orb = [&](uint8_t value) {
+        const uint8_t pb = static_cast<uint8_t>(value | 0xE0);
+        const PL::AyRoute route =
+            PL::decodeAyRoute(mode, PL::kViaLow, pb, selection);
+        const int p = (route.reset || route.drive_primary) ? bus(ay[0], pb) : -1;
+        const int s = (route.reset || route.drive_secondary) ? bus(ay[1], pb) : -1;
+        ira = PL::combineAyRead(p >= 0, static_cast<uint8_t>(p),
+                                s >= 0, static_cast<uint8_t>(s));
+        selection = route.next_selection;
+    };
+    auto write_r0 = [&](uint8_t value, uint8_t latch, uint8_t write) {
+        ora = 0;     orb(latch); orb(0x0C);
+        ora = value; orb(write); orb(0x0C);
+    };
+
+    orb(0x00); orb(0x0C);
+    write_r0(0x55, 0x0F, 0x0E);
+    write_r0(0xAA, 0x17, 0x16);
+    ora = 0; orb(0x0F); orb(0x0C);
+    orb(0x0D);
+    return ira;
+}
+
+void testDoomProbe() {
+    expect(PL::decodeViaHits(PL::kModePhasor, 0x10).low &&
+               !PL::decodeViaHits(PL::kModePhasor, 0x10).high,
+           "native $Cn1x selects only the low VIA");
+    expect(PL::decodeViaHits(PL::kModePhasor, 0x8F).high &&
+               !PL::decodeViaHits(PL::kModePhasor, 0x8F).low,
+           "native $Cn8x selects only the high VIA");
+    expect(PL::nativeStatusSocket(PL::kModePhasor, 0x1F) ==
+               PL::SsiSocket::None,
+           "native $Cn1F reads the VIA, not SSI status");
+    expect(replayFourChipProbe(PL::kModePhasor) == 0x55,
+           "native mode keeps chip 0's R0: four AYs");
+    expect(replayFourChipProbe(PL::kModeMockingboard) == 0xAA,
+           "Mockingboard mode lands chip 1's write on chip 0: two AYs");
+}
+
 void testStereoMapping() {
     expect(PL::ayChipForVia(PL::kViaLow) == PL::kStereoLeft,
            "$Cn00 low VIA AY bank renders left");
@@ -633,6 +694,7 @@ int main() {
     testAppletiniWarmth();
     testSsiDecode();
     testAyDecode();
+    testDoomProbe();
     testStereoMapping();
     testAudioMixer();
 
