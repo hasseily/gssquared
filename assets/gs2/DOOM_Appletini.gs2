@@ -1,0 +1,35 @@
+# DOOM GS on an Enhanced IIe with the Appletini card.
+#
+# - Slot 2: standard Apple Mouse II (DOOM uses its VBL interrupt as the game
+#   clock when the Appletini mouse card is absent).
+# - Slot 4: Phasor (DOOM switches it to native mode for music and uses its
+#   VIA-B timer).
+# - Slot 7: Appletini (8 MB RamWorks, SHR, memory API, 33.3 MHz). Do not add a
+#   "mem_expansion" card: it turns the Appletini RamWorks off.
+#
+# The Appletini card starts the CPU at 33.3 MHz; press F9 for Ludicrous speed.
+# For PAL, change clock to "pal" (the scanner follows the clock when it is
+# not given).
+gs2_version = 1
+id = "dc40a2b8-14b9-465e-a127-e4ed7c2435f9"
+name = "DOOM GS (Appletini)"
+description = "Enhanced IIe; Apple Mouse II; Phasor; Appletini with DOOM.hdv"
+platform = "apple2e_enhanced"
+clock = "ntsc"
+
+[[cards]]
+slot = 2
+card = "mouse"
+
+[[cards]]
+slot = 4
+card = "phasor"
+
+[[cards]]
+slot = 7
+card = "appletini"
+
+[[storage]]
+slot = 7
+drive = 1
+image = "/Users/henri/Documents/Repos/appletini-software/demos/doom_gs/build/native/DOOM.hdv"
