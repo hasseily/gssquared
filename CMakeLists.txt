@@ -808,6 +808,7 @@ if(NOT EMSCRIPTEN)
 
     add_subdirectory(apps/appletinivideotest)
     add_subdirectory(apps/appletinispeedtest)
+    add_subdirectory(apps/appletiniamemtest)
 endif()
 
 ################################################################################

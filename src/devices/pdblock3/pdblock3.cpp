@@ -28,6 +28,7 @@
 #include "debug.hpp"
 #include "display/display.hpp"
 #include "devices/iiememory/iiememory.hpp"
+#include "devices/pdblock3/AppletiniMemoryApi.hpp"
 #include "devices/pdblock3/AppletiniRamWorksConfig.hpp"
 #include "devices/pdblock3/AppletiniSpeedControl.hpp"
 #include "devices/pdblock3/pdblock3.hpp"
@@ -69,6 +70,20 @@ private:
     std::vector<uint8_t> appletini_command;
     std::deque<uint8_t> appletini_response;
     bool appletini_ready = false;
+
+    /* The ROM's block writes first send a preflight (family | $80) with the
+       command's prefix, so that vTW may fetch the payload from shadow RAM.
+       GSSquared never offers that direct source: it saves the prefix, and
+       the ROM then streams the 512 bytes and repeats the family without
+       the preflight bit, as smartport_service.c handles it. */
+    bool appletini_preflight_active = false;
+    uint8_t appletini_preflight_family = 0;
+    std::vector<uint8_t> appletini_preflight_prefix;
+
+    /* The copy/fill API (unit 0, selector $80) and the computer whose
+       memory it moves. */
+    AppletiniMemoryApi appletini_amem;
+    computer_t *appletini_computer = nullptr;
 
     std::unordered_map<storage_key_t, key_info_t> key_info;
 
@@ -139,8 +154,16 @@ public:
         if (!appletini_response.empty()) appletini_response.pop_front();
     }
 
+    /* {ready, direct, fast, 0}: GSSquared's CPU is Appletini's vTW core,
+       so the fast-port marker (bit 5) is always set, as the card shows it
+       to vTW reads. Direct (bit 6) is never set: payloads always pass
+       through the FIFO. */
     uint8_t appletini_ctrl_read() const {
-        return appletini_ready ? 0x80 : 0x00;
+        return (appletini_ready ? 0x80 : 0x00) | 0x20;
+    }
+
+    void set_appletini_computer(computer_t *computer) {
+        appletini_computer = computer;
     }
 
 private:
@@ -215,12 +238,30 @@ private:
         return APPLETINI_OK;
     }
 
+    AppletiniMemoryApi::Memory appletini_memory() const {
+        AppletiniMemoryApi::Memory memory;
+        if (appletini_computer == nullptr) return memory;
+        auto *state = static_cast<iiememory_state_t *>(
+            appletini_computer->get_module_state(MODULE_IIEMEMORY));
+        if (state == nullptr || state->ram == nullptr) return memory;
+        memory.main = state->ram;
+        memory.aux = state->ram + 0x1'0000;
+        if (state->appletini_ramworks_enabled) {
+            memory.ramworks = state->appletini_ramworks_extra_banks.data();
+            memory.ramworks_size = state->appletini_ramworks_extra_banks.size();
+        }
+        return memory;
+    }
+
     void appletini_push_smartport_status(uint8_t unit, uint8_t status_code) {
-        uint8_t payload[29] = {};
+        uint8_t payload[AppletiniMemoryApi::STATUS_SIZE] = {};
         size_t payload_size = 0;
 
         if (unit == 0) {
-            if (status_code == 0x00) {
+            if (status_code == AppletiniMemoryApi::SELECTOR) {
+                appletini_amem.status(payload, appletini_memory());
+                payload_size = AppletiniMemoryApi::STATUS_SIZE;
+            } else if (status_code == 0x00) {
                 payload[0] = appletini_present_count();
                 payload_size = 8;
             } else if (status_code == 0x03) {
@@ -348,15 +389,61 @@ private:
                     appletini_command.size() >= 10 ? appletini_command.size() - 10 : 0));
         } else if (command == 0x03) {
             appletini_response_push(APPLETINI_NOWRITE);
+        } else if (command == 0x04 && unit == 0 &&
+                   appletini_command[5] == AppletiniMemoryApi::SELECTOR) {
+            appletini_response_push(appletini_amem.control_frame(
+                appletini_command.data(), appletini_command.size(),
+                appletini_memory()));
         } else {
             appletini_response_push(APPLETINI_BADCTL);
         }
     }
 
+    void appletini_execute_preflight(uint8_t family) {
+        size_t prefix_size = 0;
+        bool write_command = false;
+        if (family == 0x01 && appletini_command.size() >= 6) {
+            prefix_size = 6;
+            write_command = appletini_command[0] == 0x02;
+        } else if (family == 0x02 && appletini_command.size() >= 10) {
+            prefix_size = 10;
+            write_command = appletini_command[0] == 0x02;
+        }
+
+        appletini_preflight_active = false;
+        appletini_preflight_prefix.clear();
+        if (!write_command) {
+            appletini_response_push(APPLETINI_BADCTL);
+            return;
+        }
+        appletini_preflight_active = true;
+        appletini_preflight_family = family;
+        appletini_preflight_prefix.assign(
+            appletini_command.begin(), appletini_command.begin() + prefix_size);
+        appletini_response_push(APPLETINI_OK);
+    }
+
 public:
-    void appletini_ctrl_write(uint8_t family) {
+    void appletini_ctrl_write(uint8_t raw_family) {
         appletini_ready = false;
         appletini_response.clear();
+
+        const uint8_t family = raw_family & 0x7F;
+        if (raw_family & 0x80) {
+            appletini_execute_preflight(family);
+            appletini_command.clear();
+            appletini_ready = true;
+            return;
+        }
+        if (appletini_preflight_active) {
+            if (appletini_preflight_family == family) {
+                appletini_command.insert(appletini_command.begin(),
+                                         appletini_preflight_prefix.begin(),
+                                         appletini_preflight_prefix.end());
+            }
+            appletini_preflight_active = false;
+            appletini_preflight_prefix.clear();
+        }
 
         if (family == 0x01) {
             appletini_execute_prodos();
@@ -1177,6 +1264,7 @@ void init_appletini(computer_t *computer, SlotType_t slot)
     computer->mmu->set_slot_rom(slot, rom_data, "APPLETINI_SLOT_ROM");
 
     register_smartport_drives(computer, slot, pdblock_d);
+    pdblock_d->pdb->set_appletini_computer(computer);
 
     const SystemConfig_t *config = computer->get_system();
     if (config != nullptr && should_enable_appletini_ramworks(*config)
