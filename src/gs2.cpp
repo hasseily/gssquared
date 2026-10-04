@@ -518,8 +518,11 @@ bool run_one_frame(computer_t *computer) {
                         break;
                     }
                     // Keep frame counters aligned if we run past end during probe.
+                    // The probe spans several 14M frames; the mouse cards schedule
+                    // their next VBL from frame_start_cycle, so move it too.
                     if (clock->get_c14m() >= clock->get_frame_end_c14M()) {
                         clock->next_frame();
+                        computer->set_frame_start_cycle();
                     }
                 }
             } else {
@@ -528,6 +531,7 @@ bool run_one_frame(computer_t *computer) {
                     (cpu->cpun->execute_next)(cpu);
                     if (clock->get_c14m() >= clock->get_frame_end_c14M()) {
                         clock->next_frame();
+                        computer->set_frame_start_cycle();
                     }
                 }
             }
