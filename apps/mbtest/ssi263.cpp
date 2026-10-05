@@ -263,7 +263,7 @@ std::vector<int16_t> renderAppletiniChainReference() {
     SSI263 speech;
     // Match scripts/test_ssi263_history_mask.py: all six phones share these
     // registers, run for 30 ms, and start back-to-back without XCK edges.
-    speech.write(4, 0xE6);
+    speech.write(4, 0x80);
     speech.write(2, 0xB8);
     speech.write(1, 0x52);
     speech.write(0, kAppletiniChainPhones.front());
@@ -838,28 +838,33 @@ int main() {
         return 1;
     }
 
-    // Match the verified Appletini RTL sample-for-sample. FILFREQ is retained
-    // as a register/alias on SSI-263, but Appletini's formant coefficients use
-    // the fixed 20 kHz capacitor clock; fresh cold streams must therefore be
-    // identical for every FILFREQ value rather than ear-tuned per value.
-    const std::vector<int16_t> p08_ff00 =
-        renderAppletiniReference(0x08, 0x00);
-    const std::vector<int16_t> p08_ffe7 =
-        renderAppletiniReference(0x08, 0xE7);
-    const std::vector<int16_t> p08_ffff =
-        renderAppletiniReference(0x08, 0xFF);
-    const std::vector<int16_t> p30_ff00 =
-        renderAppletiniReference(0x30, 0x00);
-    if (p08_ff00 != p08_ffe7 || p08_ff00 != p08_ffff) {
-        std::fprintf(stderr,
-            "SSI-263 FILFREQ changed Appletini's fixed formant path\n");
-        return 1;
-    }
-    if (!verifyAppletiniReference("P08", p08_ff00, kP08WindowOffset,
+    // Match the verified Appletini RTL sample-for-sample. FILFREQ runs the
+    // tract at (128 + FF) / 256 of the 48 kHz sample rate (appletini-one
+    // cae426f); FF=$80 is exactly one pass per sample, the response these
+    // goldens were generated with before FILFREQ had an audio effect. Every
+    // other value must change the stream and stay audible and in range.
+    const std::vector<int16_t> p08_ff80 =
+        renderAppletiniReference(0x08, 0x80);
+    const std::vector<int16_t> p30_ff80 =
+        renderAppletiniReference(0x30, 0x80);
+    if (!verifyAppletiniReference("P08", p08_ff80, kP08WindowOffset,
                                   kP08Window, kP08Metrics) ||
-        !verifyAppletiniReference("P30", p30_ff00, kP30WindowOffset,
+        !verifyAppletiniReference("P30", p30_ff80, kP30WindowOffset,
                                   kP30Window, kP30Metrics)) {
         return 1;
+    }
+    for (uint8_t filter_frequency : {0x00, 0x7F, 0x81, 0xE7, 0xFF}) {
+        const std::vector<int16_t> p08 =
+            renderAppletiniReference(0x08, filter_frequency);
+        const auto audible = std::count_if(p08.begin(), p08.end(),
+            [](int16_t sample) { return sample > 256 || sample < -256; });
+        if (p08 == p08_ff80 || audible < 1000) {
+            std::fprintf(stderr,
+                "SSI-263 FILFREQ %02X did not retune the formant path "
+                "(audible samples %ld)\n",
+                filter_frequency, static_cast<long>(audible));
+            return 1;
+        }
     }
 
     // A phone-start pulse aborts Appletini's in-flight multi-cycle sample but
@@ -892,8 +897,7 @@ int main() {
         }
     }
 
-    // Registers 4..7 alias the same FILFREQ latch even though that latch does
-    // not retune Appletini's fixed-coefficient audio backend.
+    // Registers 4..7 alias the same FILFREQ latch.
     SSI263 filter_alias;
     filter_alias.write(7, 0xE7);
     filter_alias.write(2, 0xA8);
@@ -902,8 +906,17 @@ int main() {
     filter_alias.write(3, 0x5A);
     std::vector<float> alias_audio(4096 * 2, 0.0f);
     mixClocked(filter_alias, alias_audio, 4096);
+    SSI263 filter_direct;
+    filter_direct.write(4, 0xE7);
+    filter_direct.write(2, 0xA8);
+    filter_direct.write(1, 0x40);
+    filter_direct.write(0, 0x08);
+    filter_direct.write(3, 0x5A);
+    std::vector<float> direct_audio(4096 * 2, 0.0f);
+    mixClocked(filter_direct, direct_audio, 4096);
     if (!filter_alias.active() || !hasAudibleSamples(alias_audio) ||
-        !allSamplesInRange(alias_audio)) {
+        !allSamplesInRange(alias_audio) ||
+        waveformDifference(alias_audio, direct_audio) != 0.0f) {
         std::fprintf(stderr, "SSI-263 filter-register alias failed\n");
         return 1;
     }

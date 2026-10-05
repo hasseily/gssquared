@@ -729,6 +729,12 @@ public:
         noise_shaper_.reset();
         output_filter_.reset();
         presence_low_ = 0;
+        // clear_synth_pipeline (ssi263_formant_backend.sv:962-966) also
+        // restarts the tract-rate phase and zeroes the held tract output.
+        filter_phase_ = 0;
+        last_passes_ = 0;
+        held_closed_ = 0;
+        held_lowpassed_ = 0;
     }
 
     void reset() {
@@ -737,16 +743,36 @@ public:
         visible_output_ = 0;
     }
 
-    void startPhone(bool sample_in_flight) {
+    // FILFREQ sets the switched-capacitor tract clock (appletini-one
+    // cae426f, ssi263_formant_backend.sv:134-158 and :1060-1090): the tract
+    // runs at (128 + FF) / 256 of the 48 kHz sample rate. A Q8 phase gives
+    // each sample zero, one or two passes through F1..FX; FF=$80 is exactly
+    // one pass and holds the phase at 0. Returns the passes for this sample.
+    uint8_t schedulePasses(uint8_t filter_frequency) {
+        const uint16_t step = static_cast<uint16_t>(128U + filter_frequency);
+        if (step == 256U) {
+            filter_phase_ = 0;
+            last_passes_ = 1;
+        } else {
+            const uint16_t sum = static_cast<uint16_t>(filter_phase_ + step);
+            filter_phase_ = static_cast<uint8_t>(sum & 0xFF);
+            last_passes_ = static_cast<uint8_t>(sum >> 8);
+        }
+        return last_passes_;
+    }
+
+    void startPhone(uint8_t xck_since_sample) {
         // Appletini aborts the multi-cycle synthesis pipeline when a new SSI
-        // phone starts (ssi263_formant_backend.sv:1061-1076). The pipeline
-        // runs for about 151 fabric clocks after an audio tick, so only a
-        // start that lands within it (the XCK cycle after the tick) loses
-        // the sample being computed: audio_q then keeps the sample that was
-        // visible at that tick. Host-side rendering computes the next sample
-        // atomically, so discard that hidden look-ahead value in that case
-        // only. Either way the old phone's filter histories are masked.
-        if (sample_in_flight) {
+        // phone starts (ssi263_formant_backend.sv play_phoneme). After an
+        // audio tick the pipeline runs for 9 fabric clocks with no tract
+        // pass, 151 with one and 293 with two, so a start that lands in the
+        // first XCK cycle after the tick (one pass) or the first two (two
+        // passes) loses the sample being computed: audio_q then keeps the
+        // sample that was visible at that tick. Host-side rendering computes
+        // the next sample atomically, so discard that hidden look-ahead
+        // value in that case only. Either way the old phone's filter
+        // histories are masked and the pipeline is idle again.
+        if (last_passes_ != 0 && xck_since_sample <= last_passes_) {
             output_ = visible_output_;
         }
         resetHistory();
@@ -754,7 +780,7 @@ public:
 
     float render(const FormantCore &sample_core,
                  const FormantCore &filter_core, bool excitation,
-                 uint8_t amplitude) {
+                 uint8_t amplitude, uint8_t passes) {
         // The RTL mixer observes audio_q at the audio-tick edge, then the
         // backend computes the sample launched by that edge.  Preserve that
         // one-sample output-register latency instead of exposing the newly
@@ -776,39 +802,55 @@ public:
             static_cast<int64_t>(scale4(noise_source, sample_core.filt_fa)) <<
             kNoiseShaperInputShift);
 
-        // The backend fetches F1's input-tap coefficient (tap 0) before a
-        // control commit can land in this sample, and the other taps after
-        // it (ssi263_formant_backend.sv:1191-1215).
-        std::array<int16_t, 7> f1_coefficients =
-            coefficients.f1[filter_core.filt_f1 & 0x0F];
-        f1_coefficients[0] = coefficients.f1[sample_core.filt_f1 & 0x0F][0];
-        const int32_t f1 = f1_.process(voice_input, f1_coefficients);
-        const int32_t f2 = f2_voice_.process(
-            f1, coefficients.f2[((filter_core.filt_f2 & 0x1F) << 4) |
+        // Zero, one or two tract passes (schedulePasses). Both passes of a
+        // sample use the excitation, gains and closure gain latched at the
+        // tick; a skipped sample holds the last pass's output.
+        for (uint8_t pass = 0; pass < passes; ++pass) {
+            // The backend fetches F1's input-tap coefficient (tap 0) of the
+            // first pass before a control commit can land in this sample,
+            // and the other taps (and every tap of a second pass) after it
+            // (ssi263_formant_backend.sv:1191-1215).
+            std::array<int16_t, 7> f1_coefficients =
+                coefficients.f1[filter_core.filt_f1 & 0x0F];
+            if (pass == 0) {
+                f1_coefficients[0] =
+                    coefficients.f1[sample_core.filt_f1 & 0x0F][0];
+            }
+            const int32_t f1 = f1_.process(voice_input, f1_coefficients);
+            const int32_t f2 = f2_voice_.process(
+                f1, coefficients.f2[((filter_core.filt_f2 & 0x1F) << 4) |
+                                    (filter_core.filt_f2q & 0x0F)]);
+            const int32_t fn = noise_shaper_.process(noise_input, coefficients.fn);
+            const int32_t f2_noise_input = sat24(
+                // RTL evaluates the F2-noise scaling late in the pipeline
+                // from the live FC latch, after a pending control commit
+                // can land.
+                static_cast<int64_t>(scale4(fn, filter_core.filt_fc)) <<
+                kF2NoiseInputGainShift);
+            const int32_t f2_noise = f2_noise_.process(
+                f2_noise_input,
+                coefficients.f2[((filter_core.filt_f2 & 0x1F) << 4) |
                                 (filter_core.filt_f2q & 0x0F)]);
-        const int32_t fn = noise_shaper_.process(noise_input, coefficients.fn);
-        const int32_t f2_noise_input = sat24(
-            // RTL evaluates the F2-noise scaling late in the pipeline from
-            // the live FC latch, after a pending control commit can land.
-            static_cast<int64_t>(scale4(fn, filter_core.filt_fc)) <<
-            kF2NoiseInputGainShift);
-        const int32_t f2_noise = f2_noise_.process(
-            f2_noise_input,
-            coefficients.f2[((filter_core.filt_f2 & 0x1F) << 4) |
-                            (filter_core.filt_f2q & 0x0F)]);
 
-        const int32_t voice_noise = sat24(static_cast<int64_t>(f2) + f2_noise);
-        const int32_t f3 = f3_.process(
-            voice_noise, coefficients.f3[filter_core.filt_f3 & 0x0F]);
-        const int32_t mixed = sat24(
-            static_cast<int64_t>(f3) +
-            // The noise-mix FC is latched as 0 while the excitation is
-            // muted (backend:1585-1594).
-            scale20(fn, static_cast<uint8_t>(
-                5 + (0x0F ^ (excitation ? sample_core.filt_fc : 0)))));
-        const int32_t f4 = f4_.process(mixed, coefficients.f4);
-        const int32_t closed = scale7(f4, sample_core.closureGain());
-        const int32_t lowpassed = output_filter_.process(closed, coefficients.fx);
+            const int32_t voice_noise =
+                sat24(static_cast<int64_t>(f2) + f2_noise);
+            const int32_t f3 = f3_.process(
+                voice_noise, coefficients.f3[filter_core.filt_f3 & 0x0F]);
+            const int32_t mixed = sat24(
+                static_cast<int64_t>(f3) +
+                // The noise-mix FC is latched as 0 while the excitation is
+                // muted (backend:1585-1594).
+                scale20(fn, static_cast<uint8_t>(
+                    5 + (0x0F ^ (excitation ? sample_core.filt_fc : 0)))));
+            const int32_t f4 = f4_.process(mixed, coefficients.f4);
+            held_closed_ = scale7(f4, sample_core.closureGain());
+            held_lowpassed_ =
+                output_filter_.process(held_closed_, coefficients.fx);
+        }
+        // synth_closed_q and synth_fx_q: SYNTH_SCALE onward runs once per
+        // sample, on the last pass's output.
+        const int32_t closed = held_closed_;
+        const int32_t lowpassed = held_lowpassed_;
 
         int32_t enhanced = lowpassed;
         if (chFricative(filter_core)) {
@@ -1001,6 +1043,14 @@ private:
     int32_t presence_low_ = 0;
     int16_t output_ = 0;
     int16_t visible_output_ = 0;
+    // The tract-rate scheduler (filter_phase_q) and the tract passes of the
+    // sample last scheduled (0 once a phone start has idled the pipeline).
+    uint8_t filter_phase_ = 0;
+    uint8_t last_passes_ = 0;
+    // The last pass's output (synth_closed_q and synth_fx_q), which a
+    // sample with no pass reuses.
+    int32_t held_closed_ = 0;
+    int32_t held_lowpassed_ = 0;
 };
 
 } // namespace
@@ -1066,7 +1116,7 @@ public:
         // A new native phone selects new switched-filter coefficients. The
         // verified Appletini backend masks the old IIR delay-line values when
         // that coefficient set changes.
-        synth.startPhone(xck_since_sample <= 1);
+        synth.startPhone(xck_since_sample);
         active = true;
         response_active = true;
         duration_active = true;
@@ -1177,21 +1227,30 @@ public:
         // filter pipeline is running. Keep both views so a coefficient commit
         // affects this sample's filters without retroactively changing the
         // excitation that was latched at its start.
-        const FormantCore sample_core = core;
+        FormantCore sample_core = core;
         // The SC-01 control core has no enable (sc01a_digital_core.sv:623-725):
         // its 20 kHz update phase, pitch, noise and interpolators run from
         // power-on, before the first phone and while CTL is high.
         core.advanceSample(current_function, registers);
         core.filter_dirty = false;
-        // The next XCK edge lands about 69 fabric clocks after this tick,
-        // before the attack stage (about 140): a duration-frame boundary on
-        // that edge is already visible to it.
+        const uint8_t passes = synth.schedulePasses(registers[4]);
+        // The XCK edges land about 69 and 196-202 fabric clocks after this
+        // tick. The attack stage runs at about 145 with one tract pass and
+        // 287 with two, so a duration-frame boundary on the first edge (one
+        // pass) or either of the first two (two passes) is already visible
+        // to it.
         core.attack_ticks = core.ticks;
-        if (active && duration_active && duration_ticks_left == 1) {
+        if (passes != 0 && active && duration_active &&
+            duration_ticks_left >= 1 && duration_ticks_left <= passes) {
             core.attack_ticks = core.ticks == 0x0F ? 0 : core.ticks + 1;
         }
+        // With no tract pass the post stages run 1-3 fabric clocks after the
+        // tick, before the control commit and any XCK edge: they see the
+        // state latched at the tick.
+        sample_core.attack_ticks = sample_core.ticks;
         const float sample = synth.render(
-            sample_core, core, excite, excite ? amplitude : 0);
+            sample_core, passes == 0 ? sample_core : core, excite,
+            excite ? amplitude : 0, passes);
 
         if (active) {
             ++samples_elapsed;

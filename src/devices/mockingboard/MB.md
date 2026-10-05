@@ -490,15 +490,29 @@ Apple reset is a warm reset for the SSI-263AP: it powers speech down and
 releases D7/IRQ while preserving DURPHON, INFLECT, RATEINF, FILFREQ, and the
 transitioned-inflection seed/state.
 
-FILFREQ remains a readable/writable register latch, including the register 4-7
-aliases, and follows the reset-retention rules above. To match the Appletini
-backend, however, it is acoustically unused: it does not retune the fixed 20 kHz
-formant coefficient model, and no value (including `$FF`) is a mute command.
+FILFREQ (register 4 and its aliases 5-7, following the reset-retention rules
+above) sets the switched-capacitor tract clock, as in the Appletini backend
+since appletini-one cae426f. The tract runs at `(128 + FF) / 256` of the 48 kHz
+sample rate, linear over all 256 codes: `$00` is 0.5x, `$80` exactly 1x (the
+response before FILFREQ had an audio effect) and `$FF` 383/256x. A Q8 phase
+accumulator gives each audio sample zero, one or two passes through the F1, F2
+voice/noise, noise-shaping, F3, F4, closure and output filters; a second pass
+reuses the sample's excitation, gains and closure gain, and a sample with no
+pass holds the last tract output. FF=`$80` holds the phase at 0. The source,
+the control core, the timing and the amplitude, presence and slew stages still
+run once a sample, so FILFREQ changes the tract's brightness, not the pitch or
+the durations. A new value applies from the next sample; there is no glide. The
+power-on value `$00` is the half rate, so software must write `$80` for the
+neutral response. No value (including `$FF`) is a mute command. A phone start,
+a warm reset and a cold reset restart the phase and clear the held output.
+
 IIR history is invalidated at a phone boundary, matching the Appletini
 validity-mask behavior and avoiding stale-coefficient crackle without resetting
-the oscillator or interpolation state. A phone start that lands in the XCK
-cycle right after an audio tick also drops the sample then being computed, as
-Appletini's synthesis pipeline is aborted mid-sample.
+the oscillator or interpolation state. A phone start that lands while
+Appletini's synthesis pipeline is still computing the sample launched by the
+last audio tick drops that sample, as the pipeline is aborted mid-sample: in
+the first XCK cycle after the tick for a one-pass sample, in the first two for
+a two-pass sample, and never for a sample with no tract pass.
 
 The SC-01 control core has no enable, as in Appletini: its 20 kHz update phase,
 pitch counter, noise generator and formant interpolators run from power-on,
