@@ -1,0 +1,64 @@
+# FF written just before and just after every phone write
+mode phasor
+ssi P 3 80
+ssi P 1 52
+ssi P 2 A8
+ssi P 4 30
+ssi P 0 C0
+ssi P 3 7F
+waitd7 P
+ssi P 4 00
+ssi P 0 EA
+ssi P 4 F0
+waitd7 P
+ssi P 4 FF
+ssi P 0 CB
+ssi P 4 10
+waitd7 P
+ssi P 4 80
+ssi P 0 F4
+ssi P 4 A7
+waitd7 P
+ssi P 4 C4
+ssi P 0 C0
+ssi P 4 80
+waitd7 P
+ssi P 4 5B
+ssi P 0 FD
+ssi P 4 E6
+waitd7 P
+ssi P 4 00
+ssi P 0 DF
+ssi P 4 F0
+waitd7 P
+ssi P 4 FF
+ssi P 0 FA
+ssi P 4 10
+waitd7 P
+ssi P 4 80
+ssi P 0 C0
+ssi P 4 A7
+waitd7 P
+ssi P 4 C4
+ssi P 0 EC
+ssi P 4 80
+waitd7 P
+ssi P 4 5B
+ssi P 0 CB
+ssi P 4 E6
+waitd7 P
+ssi P 4 00
+ssi P 0 E0
+ssi P 4 F0
+waitd7 P
+ssi P 4 FF
+ssi P 0 D1
+ssi P 4 10
+waitd7 P
+ssi P 4 80
+ssi P 0 C0
+ssi P 4 A7
+waitd7 P
+ssi P 3 80
+samples 1200
+end

@@ -1,0 +1,26 @@
+# FF FF: CTL=1 ring-down, FF written while CTL=1, CTL falls; A=0
+mode phasor
+ssi P 3 80
+ssi P 1 52
+ssi P 2 A8
+ssi P 4 FF
+ssi P 0 CE
+ssi P 3 7F
+samples 400
+ssi P 3 FF
+samples 600
+ssi P 4 00
+samples 200
+ssi P 3 7F
+samples 500
+ssi P 3 70
+samples 300
+ssi P 4 FF
+samples 300
+ssi P 3 7F
+waitd7 P
+ssi P 0 51
+waitd7 P
+ssi P 3 80
+samples 1200
+end

@@ -16,10 +16,10 @@ drives both with the same Apple bus traffic one Apple cycle at a time, and
 compares what comes out. Recordings of a real card are supporting evidence
 only (`recordings.py`), never the reference.
 
-It covers 157 cases: 126 synthetic register programs (`suite/`) and 31
-traces of real programs (mb-audit's speech menu and SSI-263 tests, and the
-Phasor disk's text-to-speech programs) captured on a2vm with the RTL card
-linked in.
+It covers 177 cases: 146 synthetic register programs (`suite/`, 20 of them
+for the filter-frequency register) and 31 traces of real programs
+(mb-audit's speech menu and SSI-263 tests, and the Phasor disk's
+text-to-speech programs) captured on a2vm with the RTL card linked in.
 
 ## Quick start
 
@@ -55,7 +55,7 @@ Tested on macOS 27 (Apple silicon) with:
 | Variable | Needed by | What |
 | --- | --- | --- |
 | `GSQ` | build.sh | The GSSquared tree under test. Default: the repository this directory is in (`../..`), so the harness tests the branch it is in. `run_suite.py --strict` refuses any other. |
-| `APPLETINI_ONE` | build.sh rtl/tone, run_suite.py --strict, capture.py | The appletini-one checkout, read only: the Verilog (`hdl/`) and the //e ROM (`docs/Apple2e_Enhanced.rom`). The results below are from 3101934. |
+| `APPLETINI_ONE` | build.sh rtl/tone, run_suite.py --strict, capture.py | The appletini-one checkout, read only: the Verilog (`hdl/`) and the //e ROM (`docs/Apple2e_Enhanced.rom`). The results below are from d4d0499 (the filter-frequency control of cae426f). |
 | `APPLETINI_SOFTWARE` | capture.py (a2vm/build_a2vm.sh) | The appletini-software checkout, read only: a2vm is taken from commit `a2vm/BASE` with `git archive`, so its working tree does not matter. |
 | `PHASOR_DISKS` | capture.py | The folder holding `phasor.hdv` and `mb-audit-v1.61.po` (on the owner's machine, the Appletini SD card copy under `_software/Phasor`). The disks are read into memory, never written. |
 | `SSI_WORK` | everything | Where outputs go. Default `work/` here (gitignored). |
@@ -186,14 +186,21 @@ register of `final_audio_mix`, one `step()` a clock edge);
 `tone/extract_tone.py` cuts the block itself out of mockingboard.sv verbatim
 (the PSG term of the base set to 0) and `tone_rtl` runs it under Verilator.
 `tone/schedule.hpp` is the clocking above; the voice's output reaches the
-mixer 151 clocks after the previous tick (the SSI-263 backend's pipeline,
-found by scanning: the one latency at which the model matches).
+mixer 151 clocks after the previous tick when the sample had one tract pass
+(the SSI-263 backend's pipeline, found by scanning: the one latency at which
+the model matches). Since appletini-one cae426f the filter frequency gives a
+sample 0, 1 or 2 passes, so that latency is 9, 151 or 293 clocks
+(151 + 142 per pass beyond one); `tone_check --passes FILE` takes the passes
+per sample, which `card_gss_dbg` writes with `SSI_PASSES=FILE`, and
+`tone_suite.py` does that for every case (`--fixed-d` for the old fixed
+latency).
 `tone_check` runs the model and GSSquared's `PhasorAudio::WarmthChannel` on
 the same input; `tone/tone_suite.py` does it for every case (with the RTL's
 own speech as input, against the RTL's card.pcm) and for synthetic inputs
 (steps to both rails, full-scale noise, sweeps) through the RTL block.
 
-Results (2026-10-05):
+Results with appletini-one 3101934 (2026-10-05, 157 cases, one pass a
+sample everywhere):
 
 * The model is the RTL: 0 of 23,273,634 channel-samples differ over the 157
   cases, and 0 on the synthetic inputs, which reach the warmth knee and both
@@ -211,15 +218,33 @@ Results (2026-10-05):
   collapsed Q1.31 form does not reproduce (PhasorAudio.hpp says it "can
   differ ... by a few PCM LSBs").
 
+Results with appletini-one d4d0499 (2026-10-05, 177 cases, `tone_suite.py
+--no-synth` with the per-sample passes; the synthetic inputs do not depend
+on the voice and were not rerun):
+
+* The model is the RTL on 24,131,851 of 24,131,940 channel-samples. The 89
+  that differ are syn_ff_reset R, from the Apple RESET on: a warm reset
+  zeroes the voice output at the reset's own clock, not a pipeline latency
+  after a tick, which the schedule does not model. On every other case the
+  per-sample latency 9/151/293 makes the model exact, which also confirms
+  GSSquared's pass schedule clock for clock (with the fixed 151 the model
+  missed by up to 58 LSB on the three FF cases tried).
+* GSSquared's WarmthChannel against the RTL: 10,967,633 samples differ, at
+  most 169 LSB (syn_ff_ctl_00 R), worst 10 ms error RMS 52.4 (syn_phone_31
+  R, FF=$E6). Two-pass samples put the voice 293 clocks after the tick, so
+  the unmodelled latency, and with it this residual, is about twice what it
+  was. With the latency removed (tone_check --d 0) it stays at most 16 LSB
+  (checked on syn_ff_phones_FF, syn_ff_sweep_coarse, syn_ff_ctl_00).
+
 So GSSquared's warmth stage is not bit-exact with the RTL's. The difference
-is small (about -50 dBFS at worst on speech), but by the rule that the RTL
-is the reference it is a difference, and the card gates below tolerate this
-much and no more.
+is small (about -46 dBFS at worst on speech), but by the rule that the RTL
+is the reference it is a difference. The card gates below were set from the
+3101934 residual (93 and 27.7) and now fail on it: see "Known open items".
 
 ## Inputs
 
 * `suite/*.txt`: closed-loop scripts (each implementation follows its own
-  responses). `gen_suite.py` writes `suite/syn_*.txt` (125 cases); the
+  responses). `gen_suite.py` writes `suite/syn_*.txt` (145 cases); the
   commands are in the header of `common/driver.hpp`: writes cost 6 cycles
   (LDA #/STA abs), D7 polls 7 cycles a loop, IFR polls 9, IRQ waits add the
   7-cycle entry, `reset N` holds Apple RES.
@@ -256,12 +281,21 @@ The mb-audit and Speech Adjust traces are fixed cycle ranges of their
 captures (`capture.py`, `CUTS`); the other TTS programs are cut per
 utterance group by `split_capture.py --gap 400000 --tail 300000`.
 The captures are deterministic: on 2026-10-05 `capture.py` reproduced all
-31 traces byte for byte from the disks above.
+31 traces byte for byte from the disks above. Later that day the owner's
+phasor.hdv changed (modified 06:52): its TTS Pitch byte, which the programs
+write to the filter-frequency register ($C444), is now $F5 where the first
+recording had $80. The 21 phasor.hdv traces were re-recorded from it with
+appletini-one d4d0499 (`capture/traces.sha256` names the disk's SHA-256).
+The RTL change is not the cause: the 10 mb-audit traces came out identical,
+17 of the 21 TTS traces differ only in that byte, and 3101934's RTL cuts the
+same phadj_01-04 from the new disk as d4d0499's. The TTS traces now run the
+tract at $F5 (about 1.46 times the old rate, two passes on 46% of samples);
+the mb-audit traces write $E6, $E9 and $00.
 
 ## Acceptance gates (`run_suite.py --strict`)
 
 `--strict` exits 0 (`STRICT: PASS`) only if every gate below holds for all
-157 cases; otherwise `STRICT: FAIL (...)` and exit 1, or `STRICT: REFUSED
+177 cases; otherwise `STRICT: FAIL (...)` and exit 1, or `STRICT: REFUSED
 (...)` and exit 2 when it cannot judge (a stale binary it cannot rebuild,
 renderer settings in the environment, `--fast`, `GSQ` set to another tree,
 a missing or different trace). Its last lines are the totals, the SSI and
@@ -402,13 +436,21 @@ same format, for finding the first state that differs.
 
 ## Known open items
 
-* WARMTH is not bit-exact. GSSquared's `PhasorAudio::WarmthChannel`
-  collapses the RTL's per-clock one-poles into one step per sample, so the
-  card output differs by up to 93 LSB (27.7 RMS a window) on speech and up
-  to 438 on full-scale synthetic input. The card gates tolerate exactly the
-  speech residual; full-scale material is not gated. Making it exact means
-  modelling the RTL's per-clock integration and its 154-clock voice
-  latency.
+* WARMTH is not bit-exact, and since the filter-frequency control the
+  card gates fail on it. GSSquared's `PhasorAudio::WarmthChannel` collapses
+  the RTL's per-clock one-poles into one step per sample and has no voice
+  latency. With FF=$80 the RTL's voice reaches the mixer 154 clocks after
+  the tick and the card output differed by up to 93 LSB (27.7 RMS a window);
+  with FF above $80 about half the samples take two tract passes and arrive
+  293 clocks after the tick, and the residual grows to 169 LSB (52.4 RMS),
+  over the sample (128) and window (40) gates in 35 of 177 cases, every one
+  of them with FF above $80 (the $E6 synthetic cases, mb-audit's $E9, the
+  TTS traces' $F5, the FF cases at $FF), while every socket sample is
+  identical. Either WarmthChannel models the per-sample voice latency (the
+  SSI-263 would report its passes, and mb2.cpp's mix and the mirror would
+  change with it) or the gates are re-derived from the new residual (1.4
+  times it: about 240 and 75). The owner decides; full-scale material is
+  not gated either way.
 * Coverage of CTLRUN, FCMUTE and Echo+. The fix ports CTLRUN (CTL=1 keeps
   the counters and core running) and FCMUTE (the noise-mix FC latched as 0
   while muted), but with the other causes modelled no case changes when
@@ -426,9 +468,40 @@ same format, for finding the first state that differs.
   8 LSB). The harness checks GSSquared against the RTL under this one
   phase, not across all of them.
 
-## Results (2026-10-05, appletini-one 3101934)
+## Results (2026-10-05, appletini-one d4d0499: the filter frequency)
 
-`run_suite.py --strict`:
+appletini-one cae426f made register 4 (aliases 5-7) set the tract rate:
+(128+FF)/256 of the 48 kHz rate, a Q8 phase giving each sample 0, 1 or 2
+passes through F1..FX, FF=$80 the old response exactly (MB.md, SSI263.cpp
+`schedulePasses`). Every reference changed (power-on FF=$00 is half rate;
+most synthetic cases write $E6), and the suite gained 20 FF cases
+(`gen_suite.py` section 16): the Phasor demo's init with Pitch
+0A/80/E8/F5/FA, coarse and fine sweeps across the $80 bypass, writes every
+6 cycles, FF written around phone writes, phone starts at every tick phase
+at 00/E6/FF (the 0-, 1- and 2-pass abort windows), CTL ring-down and A=0,
+Apple RESET with FF kept, an unwritten FF in Mockingboard mode, both
+sockets with broadcast and aliases 5-7 in both modes, and all 64 phones at
+00 and FF.
+
+On the code before the port (8edd9700, 2ad4f50a's SSI263.cpp) a targeted
+run of the FF cases, syn_filfreq_*, syn_phone_08, syn_broadcast and hello
+gave 1 EXACT (syn_ff_demo_80, the neutral value) and 26 FAIL. After the
+port all 27 had identical sockets and events on the first run.
+
+`run_suite.py --strict` on 502467e5 (the port): 177 cases, SSI-263 (sockets
+and events) 177 EXACT; card check 142 pass (8 sample-exact, the silent
+cases), 35 FAIL; mirror check OK; STRICT: FAIL, exit 1. Every card failure
+is the sample (128) or window (40) gate, worst 169 LSB (syn_ff_ctl_00) and
+52.4 RMS (syn_phone_31), all in cases with FF above $80: the WARMTH residual
+of "Known open items", not the speech. Every other card gate holds (noise
+floor at most 3.6 RMS, level within 0.08 dB, routing, silence, lag).
+
+The results below, and the attribution table, are from appletini-one
+3101934, before the filter frequency had an audio effect; the attribution
+builds patch d15bdbf9, which has no FF either, so they no longer match the
+d4d0499 references.
+
+`run_suite.py --strict` (3101934):
 
 | Tree | Totals | SSI-263 | Card check | STRICT |
 | --- | --- | --- | --- | --- |

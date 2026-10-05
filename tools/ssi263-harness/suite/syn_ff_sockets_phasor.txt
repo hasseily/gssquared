@@ -1,0 +1,32 @@
+# phasor mode: P FF=0A, S FF=FA, broadcast C464, aliases 5-7
+mode phasor
+ssi P 3 80
+ssi P 1 52
+ssi P 2 A8
+ssi P 4 0A
+ssi P 0 CE
+ssi P 3 7F
+ssi S 3 80
+ssi S 1 80
+ssi S 2 A8
+ssi S 4 FA
+ssi S 0 CA
+ssi S 3 7F
+samples 600
+w C464 C0
+samples 600
+ssi P 5 20
+ssi S 5 E0
+samples 500
+ssi P 6 90
+ssi S 6 70
+samples 500
+ssi P 7 FF
+ssi S 7 00
+samples 500
+w C467 80
+samples 500
+ssi P 3 80
+ssi S 3 80
+samples 1200
+end

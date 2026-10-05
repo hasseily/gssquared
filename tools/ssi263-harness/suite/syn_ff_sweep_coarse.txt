@@ -1,0 +1,76 @@
+# FF swept 00..FF..00 in steps of 11 on a sustained AH
+mode phasor
+ssi P 3 80
+ssi P 1 52
+ssi P 2 A8
+ssi P 4 00
+ssi P 0 CE
+ssi P 3 7F
+samples 90
+ssi P 4 00
+samples 90
+ssi P 4 11
+samples 90
+ssi P 4 22
+samples 90
+ssi P 4 33
+samples 90
+ssi P 4 44
+samples 90
+ssi P 4 55
+samples 90
+ssi P 4 66
+samples 90
+ssi P 4 77
+samples 90
+ssi P 4 88
+samples 90
+ssi P 4 99
+samples 90
+ssi P 4 AA
+samples 90
+ssi P 4 BB
+samples 90
+ssi P 4 CC
+samples 90
+ssi P 4 DD
+samples 90
+ssi P 4 EE
+samples 90
+ssi P 4 FF
+samples 90
+ssi P 4 FF
+samples 90
+ssi P 4 EE
+samples 90
+ssi P 4 DD
+samples 90
+ssi P 4 CC
+samples 90
+ssi P 4 BB
+samples 90
+ssi P 4 AA
+samples 90
+ssi P 4 99
+samples 90
+ssi P 4 88
+samples 90
+ssi P 4 77
+samples 90
+ssi P 4 66
+samples 90
+ssi P 4 55
+samples 90
+ssi P 4 44
+samples 90
+ssi P 4 33
+samples 90
+ssi P 4 22
+samples 90
+ssi P 4 11
+samples 90
+ssi P 4 00
+samples 600
+ssi P 3 80
+samples 1200
+end

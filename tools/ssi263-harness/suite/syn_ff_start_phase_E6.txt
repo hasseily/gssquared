@@ -1,0 +1,216 @@
+# FF E6: phone starts at every tick phase
+mode phasor
+ssi P 3 80
+ssi P 1 52
+ssi P 2 A8
+ssi P 4 E6
+ssi P 0 CE
+ssi P 3 7F
+samples 29
+ssi P 0 CE
+samples 29
+wait 1
+ssi P 0 CA
+samples 29
+wait 2
+ssi P 0 D1
+samples 29
+wait 3
+ssi P 0 EA
+samples 29
+wait 4
+ssi P 0 CB
+samples 29
+wait 5
+ssi P 0 CE
+samples 29
+wait 6
+ssi P 0 CA
+samples 29
+wait 7
+ssi P 0 D1
+samples 29
+wait 8
+ssi P 0 EA
+samples 29
+wait 9
+ssi P 0 CB
+samples 29
+wait 10
+ssi P 0 CE
+samples 29
+wait 11
+ssi P 0 CA
+samples 29
+wait 12
+ssi P 0 D1
+samples 29
+wait 13
+ssi P 0 EA
+samples 29
+wait 14
+ssi P 0 CB
+samples 29
+wait 15
+ssi P 0 CE
+samples 29
+wait 16
+ssi P 0 CA
+samples 29
+wait 17
+ssi P 0 D1
+samples 29
+wait 18
+ssi P 0 EA
+samples 29
+wait 19
+ssi P 0 CB
+samples 29
+wait 20
+ssi P 0 CE
+samples 29
+wait 21
+ssi P 0 CA
+samples 29
+wait 22
+ssi P 0 D1
+samples 30
+ssi P 0 EA
+samples 30
+wait 1
+ssi P 0 CB
+samples 30
+wait 2
+ssi P 0 CE
+samples 30
+wait 3
+ssi P 0 CA
+samples 30
+wait 4
+ssi P 0 D1
+samples 30
+wait 5
+ssi P 0 EA
+samples 30
+wait 6
+ssi P 0 CB
+samples 30
+wait 7
+ssi P 0 CE
+samples 30
+wait 8
+ssi P 0 CA
+samples 30
+wait 9
+ssi P 0 D1
+samples 30
+wait 10
+ssi P 0 EA
+samples 30
+wait 11
+ssi P 0 CB
+samples 30
+wait 12
+ssi P 0 CE
+samples 30
+wait 13
+ssi P 0 CA
+samples 30
+wait 14
+ssi P 0 D1
+samples 30
+wait 15
+ssi P 0 EA
+samples 30
+wait 16
+ssi P 0 CB
+samples 30
+wait 17
+ssi P 0 CE
+samples 30
+wait 18
+ssi P 0 CA
+samples 30
+wait 19
+ssi P 0 D1
+samples 30
+wait 20
+ssi P 0 EA
+samples 30
+wait 21
+ssi P 0 CB
+samples 30
+wait 22
+ssi P 0 CE
+samples 31
+ssi P 0 CA
+samples 31
+wait 1
+ssi P 0 D1
+samples 31
+wait 2
+ssi P 0 EA
+samples 31
+wait 3
+ssi P 0 CB
+samples 31
+wait 4
+ssi P 0 CE
+samples 31
+wait 5
+ssi P 0 CA
+samples 31
+wait 6
+ssi P 0 D1
+samples 31
+wait 7
+ssi P 0 EA
+samples 31
+wait 8
+ssi P 0 CB
+samples 31
+wait 9
+ssi P 0 CE
+samples 31
+wait 10
+ssi P 0 CA
+samples 31
+wait 11
+ssi P 0 D1
+samples 31
+wait 12
+ssi P 0 EA
+samples 31
+wait 13
+ssi P 0 CB
+samples 31
+wait 14
+ssi P 0 CE
+samples 31
+wait 15
+ssi P 0 CA
+samples 31
+wait 16
+ssi P 0 D1
+samples 31
+wait 17
+ssi P 0 EA
+samples 31
+wait 18
+ssi P 0 CB
+samples 31
+wait 19
+ssi P 0 CE
+samples 31
+wait 20
+ssi P 0 CA
+samples 31
+wait 21
+ssi P 0 D1
+samples 31
+wait 22
+ssi P 0 EA
+samples 400
+ssi P 3 80
+samples 1200
+end

@@ -1,0 +1,58 @@
+# FF swept 7C..84..7C one step at a time on a sustained AH
+mode phasor
+ssi P 3 80
+ssi P 1 52
+ssi P 2 A8
+ssi P 4 7C
+ssi P 0 CE
+ssi P 3 7F
+samples 45
+ssi P 4 7C
+samples 45
+ssi P 4 7D
+samples 45
+ssi P 4 7E
+samples 45
+ssi P 4 7F
+samples 45
+ssi P 4 80
+samples 45
+ssi P 4 81
+samples 45
+ssi P 4 82
+samples 45
+ssi P 4 83
+samples 45
+ssi P 4 84
+samples 45
+ssi P 4 84
+samples 45
+ssi P 4 83
+samples 45
+ssi P 4 82
+samples 45
+ssi P 4 81
+samples 45
+ssi P 4 80
+samples 45
+ssi P 4 7F
+samples 45
+ssi P 4 7E
+samples 45
+ssi P 4 7D
+samples 45
+ssi P 4 7C
+samples 45
+ssi P 4 80
+samples 45
+ssi P 4 81
+samples 45
+ssi P 4 80
+samples 45
+ssi P 4 7F
+samples 45
+ssi P 4 80
+samples 600
+ssi P 3 80
+samples 1200
+end

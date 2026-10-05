@@ -33,7 +33,19 @@ static void dbgPre(SSI263 &sec, SSI263 &pri) {
                  g_n, c.pitch, c.ticks, c.closure_age, c.pitch_noise_gate, c.noise_bit, c.update_counter,
                  packFilt(c), cur);
 }
+// SSI_PASSES=file: one byte per sample and socket (secondary, primary), the
+// tract passes of the sample each started at this tick (tone_check --passes).
+static FILE *g_passes = nullptr;
 static void dbgPost(SSI263 &sec, SSI263 &pri) {
+    static bool passes_open = false;
+    if (!passes_open) {
+        passes_open = true;
+        if (const char *p = std::getenv("SSI_PASSES")) g_passes = std::fopen(p, "wb");
+    }
+    if (g_passes) {
+        std::fputc(sec.impl_->synth.last_passes_, g_passes);
+        std::fputc(pri.impl_->synth.last_passes_, g_passes);
+    }
     if (!g_dbg) return;
     SSI263 &v = g_sel ? pri : sec;
     const FormantCore &c = v.impl_->core;

@@ -15,6 +15,8 @@
 //       stereo int16 input through the model; writes the model's output
 //       and prints WarmthChannel's residual against it (synthetic inputs).
 //   --model-out FILE / --gss-out FILE write those outputs (stereo int16).
+//   --passes FILE: per-sample tract passes, for the per-sample voice latency
+//       FILFREQ gives (see latencyFor); without it D is fixed (FF=$80).
 #include "schedule.hpp"
 #include "devices/mockingboard/PhasorAudio.hpp"
 
@@ -41,21 +43,32 @@ static void save(const std::string &p, const std::vector<int16_t> &v) {
     std::fclose(f);
 }
 
+// Per-sample voice latency (--passes): the SSI-263 backend's pipeline after
+// a tick is 9 fabric clocks with no tract pass, 151 with one and 293 with
+// two (FILFREQ, appletini-one cae426f), so D = 151 + 142 * (passes - 1).
+// FILE holds one byte per sample and socket (secondary, primary), the
+// passes of the sample each socket started at that tick (card_gss_dbg with
+// SSI_PASSES=FILE writes it); sample k is the one started at tick k-1.
+static std::vector<uint8_t> g_passes;
+static int latencyFor(int d, size_t k, int ch) {
+    if (g_passes.empty() || k == 0 || 2 * (k - 1) + ch >= g_passes.size()) return d;
+    return d + 142 * (int(g_passes[2 * (k - 1) + ch]) - 1);
+}
+
 // Model output for stereo input (interleaved), one sample per tick.
 static std::vector<int16_t> runModel(const std::vector<int16_t> &in, size_t ns, bool card, int d,
                                      uint32_t ac) {
     tone::Schedule s = tone::makeSchedule(ns, card, d);
     std::vector<int16_t> out(2 * ns);
     tone::Channel L, R;
-    size_t k_in = 0;             // input sample in force
+    size_t kl = 0, kr = 0;       // input sample in force, per channel
     int32_t xl = in[0], xr = in[1];
     size_t k_out = 0;
     const int64_t last = s.out[ns - 1];
+    auto sw = [&](size_t k, int ch) { return s.tick[k - 1] + latencyFor(d, k, ch) + 1; };
     for (int64_t e = 0; e <= last; ++e) {
-        while (k_in + 1 < ns && s.sw[k_in + 1] <= e) {
-            ++k_in;
-            xl = in[2 * k_in]; xr = in[2 * k_in + 1];
-        }
+        while (kl + 1 < ns && sw(kl + 1, 0) <= e) xl = in[2 * ++kl];
+        while (kr + 1 < ns && sw(kr + 1, 1) <= e) xr = in[2 * ++kr + 1];
         L.step(xl, ac);
         R.step(xr, ac);
         while (k_out < ns && s.out[k_out] == e) {
@@ -115,6 +128,13 @@ int main(int argc, char **argv) {
         else if (a == "--gss-out") gss_out = argv[++i];
         else if (a == "--ac") ac = std::strtoul(argv[++i], nullptr, 0);
         else if (a == "--quiet") quiet = true;
+        else if (a == "--passes") {
+            FILE *f = std::fopen(argv[++i], "rb");
+            if (!f) { std::perror(argv[i]); return 2; }
+            int c;
+            while ((c = std::fgetc(f)) != EOF) g_passes.push_back(static_cast<uint8_t>(c));
+            std::fclose(f);
+        }
         else dir = a;
     }
     std::vector<int16_t> in, ref;

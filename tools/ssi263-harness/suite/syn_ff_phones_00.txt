@@ -1,0 +1,142 @@
+# FF 00: all 64 phones at D=2 then PA
+mode phasor
+ssi P 3 80
+ssi P 1 52
+ssi P 2 A8
+ssi P 4 00
+ssi P 0 C0
+ssi P 3 7F
+waitd7 P
+ssi P 0 80
+waitd7 P
+ssi P 0 81
+waitd7 P
+ssi P 0 82
+waitd7 P
+ssi P 0 83
+waitd7 P
+ssi P 0 84
+waitd7 P
+ssi P 0 85
+waitd7 P
+ssi P 0 86
+waitd7 P
+ssi P 0 87
+waitd7 P
+ssi P 0 88
+waitd7 P
+ssi P 0 89
+waitd7 P
+ssi P 0 8A
+waitd7 P
+ssi P 0 8B
+waitd7 P
+ssi P 0 8C
+waitd7 P
+ssi P 0 8D
+waitd7 P
+ssi P 0 8E
+waitd7 P
+ssi P 0 8F
+waitd7 P
+ssi P 0 90
+waitd7 P
+ssi P 0 91
+waitd7 P
+ssi P 0 92
+waitd7 P
+ssi P 0 93
+waitd7 P
+ssi P 0 94
+waitd7 P
+ssi P 0 95
+waitd7 P
+ssi P 0 96
+waitd7 P
+ssi P 0 97
+waitd7 P
+ssi P 0 98
+waitd7 P
+ssi P 0 99
+waitd7 P
+ssi P 0 9A
+waitd7 P
+ssi P 0 9B
+waitd7 P
+ssi P 0 9C
+waitd7 P
+ssi P 0 9D
+waitd7 P
+ssi P 0 9E
+waitd7 P
+ssi P 0 9F
+waitd7 P
+ssi P 0 A0
+waitd7 P
+ssi P 0 A1
+waitd7 P
+ssi P 0 A2
+waitd7 P
+ssi P 0 A3
+waitd7 P
+ssi P 0 A4
+waitd7 P
+ssi P 0 A5
+waitd7 P
+ssi P 0 A6
+waitd7 P
+ssi P 0 A7
+waitd7 P
+ssi P 0 A8
+waitd7 P
+ssi P 0 A9
+waitd7 P
+ssi P 0 AA
+waitd7 P
+ssi P 0 AB
+waitd7 P
+ssi P 0 AC
+waitd7 P
+ssi P 0 AD
+waitd7 P
+ssi P 0 AE
+waitd7 P
+ssi P 0 AF
+waitd7 P
+ssi P 0 B0
+waitd7 P
+ssi P 0 B1
+waitd7 P
+ssi P 0 B2
+waitd7 P
+ssi P 0 B3
+waitd7 P
+ssi P 0 B4
+waitd7 P
+ssi P 0 B5
+waitd7 P
+ssi P 0 B6
+waitd7 P
+ssi P 0 B7
+waitd7 P
+ssi P 0 B8
+waitd7 P
+ssi P 0 B9
+waitd7 P
+ssi P 0 BA
+waitd7 P
+ssi P 0 BB
+waitd7 P
+ssi P 0 BC
+waitd7 P
+ssi P 0 BD
+waitd7 P
+ssi P 0 BE
+waitd7 P
+ssi P 0 BF
+waitd7 P
+ssi P 0 C0
+waitd7 P
+ssi P 3 80
+samples 1200
+end

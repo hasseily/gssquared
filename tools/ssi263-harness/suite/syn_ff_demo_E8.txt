@@ -1,0 +1,22 @@
+# Phasor demo init with Pitch (FF) E8, then "hello"
+mode phasor
+w C443 80
+w C440 C0
+w C441 40
+w C442 A8
+w C443 5A
+w C444 E8
+waitd7 P
+ssi P 0 EC
+waitd7 P
+ssi P 0 CB
+waitd7 P
+ssi P 0 E0
+waitd7 P
+ssi P 0 D1
+waitd7 P
+ssi P 0 C0
+waitd7 P
+ssi P 3 80
+samples 1200
+end

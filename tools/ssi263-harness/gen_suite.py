@@ -64,6 +64,150 @@ class S:
         (OUT / f'syn_{name}.txt').write_text('\n'.join(self.l) + '\n')
 
 
+def ff_cases():
+    """16. Filter frequency (register 4, aliases 5-7). appletini-one cae426f
+    runs the tract at (128+FF)/256 of its old rate: per 48 kHz sample a Q8
+    phase accumulator gives 0, 1 or 2 passes through F1..FX (FF=$80 is
+    exactly one pass and resets the phase; a skipped sample holds the last
+    tract output). These cases sweep it, change it under speech, CTL, reset
+    and phone starts, and start phones at every tick phase so the 0/1/2-pass
+    in-flight windows are crossed."""
+    AH = 0x0E                      # a vowel that sustains (DR=11 repeats it)
+
+    # The Phasor demo's TTS init (C443<-80, C440<-C0, C441<-40, C442<-A8,
+    # C443<-5A, then its Pitch byte to C444), then "hello". 0A/80/FA are the
+    # demo's dark, neutral and bright ends; E8 is PHASOR1's default Pitch
+    # (232) and F5 the byte on the owner's phasor.hdv.
+    for ff in (0x0A, 0x80, 0xE8, 0xF5, 0xFA):
+        s = S(f'Phasor demo init with Pitch (FF) {ff:02X}, then "hello"')
+        s.add('mode phasor', 'w C443 80', 'w C440 C0', 'w C441 40', 'w C442 A8',
+              'w C443 5A', f'w C444 {ff:02X}')
+        for ph in HELLO:
+            s.phone(ph, d=3)
+        s.stop()
+        s.write(f'ff_demo_{ff:02X}')
+
+    # Sweeps on a sustained vowel: 00..FF..00 in steps of $11, then a fine
+    # sweep across the $80 bypass (entering and leaving it resets the phase).
+    s = S('FF swept 00..FF..00 in steps of 11 on a sustained AH')
+    s.setup(ff=0x00, first=AH)
+    seq = list(range(0x00, 0x100, 0x11))
+    for v in seq + seq[::-1]:
+        s.add('samples 90').ssi(4, v)
+    s.stop(wait=600)
+    s.write('ff_sweep_coarse')
+    s = S('FF swept 7C..84..7C one step at a time on a sustained AH')
+    s.setup(ff=0x7C, first=AH)
+    seq = list(range(0x7C, 0x85))
+    for v in seq + seq[::-1] + [0x80, 0x81, 0x80, 0x7F, 0x80]:
+        s.add('samples 45').ssi(4, v)
+    s.stop(wait=600)
+    s.write('ff_sweep_fine')
+
+    # Hot toggling: back-to-back writes (6 cycles apart) land at every
+    # cycle of the 48 kHz period, so every tick sees a different last value.
+    s = S('FF toggled every 6 cycles (00/FF, then 7F/80/81/C0) on a sustained AH')
+    s.setup(ff=0x80, first=AH)
+    s.add('samples 200')
+    for i in range(240):
+        s.ssi(4, 0xFF if i & 1 else 0x00)
+    s.add('samples 100')
+    for i in range(240):
+        s.ssi(4, (0x7F, 0x80, 0x81, 0xC0)[i % 4])
+    s.stop(wait=400)
+    s.write('ff_hot_toggle')
+
+    # FF written just before and just after each phone write.
+    s = S('FF written just before and just after every phone write')
+    s.setup(ff=0x30)
+    for i, ph in enumerate(WORDS + HELLO):
+        s.add('waitd7 P')
+        s.ssi(4, (0x00, 0xFF, 0x80, 0xC4, 0x5B)[i % 5])
+        s.ssi(0, 0xC0 | ph)
+        s.ssi(4, (0xF0, 0x10, 0xA7, 0x80, 0xE6)[i % 5])
+    s.stop()
+    s.write('ff_across_phones')
+
+    # Phone starts at every phase of the 48 kHz period: after a sample,
+    # 'wait k' (k = 0..22) puts the write 6+k cycles later, so it lands in
+    # each cycle after the next tick (the 0-, 1- and 2-pass windows), with
+    # 29-31 samples since the previous start to vary the pass pattern.
+    for ff in (0x00, 0xE6, 0xFF):
+        s = S(f'FF {ff:02X}: phone starts at every tick phase')
+        s.setup(ff=ff, first=AH)
+        n = 0
+        for spacing in (29, 30, 31):
+            for k in range(23):
+                s.add(f'samples {spacing}')
+                if k:
+                    s.add(f'wait {k}')
+                s.ssi(0, 0xC0 | (AH, 0x0A, 0x11, 0x2A, 0x4B)[n % 5])
+                n += 1
+        s.stop(wait=400)
+        s.write(f'ff_start_phase_{ff:02X}')
+
+    # CTL: ring-down with CTL=1 at 00 and FF, an FF write while CTL=1 then a
+    # CTL falling edge, and amplitude 0 at FF.
+    for ff in (0x00, 0xFF):
+        s = S(f'FF {ff:02X}: CTL=1 ring-down, FF written while CTL=1, CTL falls; A=0')
+        s.setup(ff=ff, first=AH)
+        s.add('samples 400').ssi(3, 0xF0 | 0xF)            # CTL=1: ring-down
+        s.add('samples 600').ssi(4, ff ^ 0xFF)            # FF while CTL=1
+        s.add('samples 200').ssi(3, 0x7F)                 # CTL falls: phone restarts
+        s.add('samples 500').ssi(3, 0x70)                 # A=0
+        s.add('samples 300').ssi(4, ff)
+        s.add('samples 300').ssi(3, 0x7F)
+        s.phone(0x11, d=1)
+        s.stop()
+        s.write(f'ff_ctl_{ff:02X}')
+
+    # Reset: FF=3C, Apple RESET mid-phone (FF kept), speech without
+    # rewriting FF; and a secondary socket in Mockingboard mode that never
+    # writes FF (power-on 00, half rate).
+    s = S('FF 3C, Apple RESET mid-phone, speech again without rewriting FF')
+    s.setup(ff=0x3C, first=AH)
+    s.phone(0x0A, d=0)
+    s.add('samples 500', 'reset 20', 'samples 800', 'mode phasor')
+    s.ssi(3, 0x7F)
+    for ph in HELLO:
+        s.phone(ph, d=2)
+    s.stop()
+    s.write('ff_reset')
+    s = S('Mockingboard mode, secondary socket, FF never written (power-on 00)')
+    s.add('mode mb', 'w C40C 00', 'w C40E 82')
+    s.add('ssi S 3 80', 'ssi S 1 52', 'ssi S 2 A8', 'ssi S 0 C0', 'ssi S 3 7F')
+    for ph in HELLO:
+        s.add('waitirq', 'r C40D').ssi(0, 0xC0 | ph, 'S').add('w C40D 02')
+    s.add('waitirq').ssi(3, 0x80, 'S').add('w C40D 02', 'samples 1200', 'end')
+    s.write('ff_mb_unwritten')
+
+    # Sockets and aliases: P=0A with S=FA, a broadcast write to $C464,
+    # aliases 5-7 on both sockets, in native and Mockingboard mode.
+    for mode in ('phasor', 'mb'):
+        s = S(f'{mode} mode: P FF=0A, S FF=FA, broadcast C464, aliases 5-7')
+        s.add(f'mode {mode}')
+        if mode == 'mb':
+            s.add('w C48C 00', 'w C40C 00')
+        s.setup(sock='P', ff=0x0A, first=AH, mode=None)
+        s.setup(sock='S', ff=0xFA, first=0x0A, infl=0x80, mode=None)
+        s.add('samples 600', 'w C464 C0', 'samples 600')
+        for reg, p, q in ((5, 0x20, 0xE0), (6, 0x90, 0x70), (7, 0xFF, 0x00)):
+            s.ssi(reg, p, 'P').ssi(reg, q, 'S').add('samples 500')
+        s.add('w C467 80', 'samples 500')
+        s.ssi(3, 0x80, 'P').ssi(3, 0x80, 'S').add('samples 1200', 'end')
+        s.write(f'ff_sockets_{mode}')
+
+    # All 64 phones at both ends (attack look-ahead, pre/post-commit reads).
+    for ff in (0x00, 0xFF):
+        s = S(f'FF {ff:02X}: all 64 phones at D=2 then PA')
+        s.setup(ff=ff, first=0x00)
+        for ph in range(64):
+            s.phone(ph, d=2)
+        s.phone(0x00, d=3)
+        s.stop()
+        s.write(f'ff_phones_{ff:02X}')
+
+
 def main():
     OUT.mkdir(exist_ok=True)
     for p in OUT.glob('syn_*.txt'):
@@ -137,7 +281,9 @@ def main():
     s.stop()
     s.write('infl_midphone')
 
-    # 5. Filter frequency (no audio effect expected on either side).
+    # 5. Filter frequency, changed once partway through the phrase (the
+    # tract rate (128+FF)/256 of appletini-one cae426f; section 16 has the
+    # dedicated FF cases).
     for ff in (0x00, 0x80, 0xE6, 0xFF):
         s = S(f'filter frequency {ff:02X}')
         s.setup(ff=ff)
@@ -303,6 +449,8 @@ def main():
         s.add('w C48D 02')
     s.stop(wait='ifr')
     s.write('mb_hello')
+
+    ff_cases()
 
     print(f'wrote {len(list(OUT.glob("syn_*.txt")))} cases into {OUT}')
 

@@ -1,7 +1,11 @@
 #!/usr/bin/env python3
 """Tone-stage-only check over every case and over synthetic inputs.
 
-usage: tone/tone_suite.py [--jobs N] [--clock card|fixed] [--d D] [--no-synth]
+usage: tone/tone_suite.py [--jobs N] [--clock card|fixed] [--d D] [--fixed-d] [--no-synth]
+
+The voice latency D (151 clocks, one tract pass) moves per sample with
+FILFREQ: 9 with no pass, 293 with two. Unless --fixed-d, each case's
+per-sample passes come from bin/card_gss_dbg (./build.sh dbg).
 
 1. Every reference render out/*/rtl (bin/card_rtl): bin/tone_check runs the
    per-clock model of the RTL tone stage (tone/tone_model.hpp) and
@@ -28,9 +32,38 @@ LINE = re.compile(r'^([LR]) model-vs-rtl (\d+)/(\d+) diff max (\d+) \| gss-vs-rt
                   r'win-rms ([\d.]+) @(\d+) snr (\S+) dB')
 
 
+def case_passes(d):
+    """The per-sample tract passes of case d (FILFREQ gives each sample 0, 1
+    or 2, so the voice latency is 9, 151 or 293 clocks): card_gss_dbg
+    (./build.sh dbg) renders the case with SSI_PASSES into a scratch
+    directory. Its schedule is GSSquared's, so the check that the model
+    matches the RTL also checks that schedule. None when it cannot."""
+    name = d.parent.name
+    src = paths.SUITE / f'{name}.txt'
+    kind = 'script'
+    if not src.exists():
+        src, kind = paths.TRACES / f'{name}.trace', 'trace'
+    dbg = paths.BIN / 'card_gss_dbg'
+    if not src.exists() or not dbg.exists():
+        return None
+    tmp = TMP / name
+    tmp.mkdir(parents=True, exist_ok=True)
+    env = {'PATH': '/usr/bin:/bin', 'SSI_PASSES': str(tmp / 'passes.bin')}
+    subprocess.run([str(dbg), kind, str(src), str(tmp)], env=env, check=True, capture_output=True)
+    for f in ('sec.pcm', 'pri.pcm', 'card.pcm', 'events.txt'):
+        (tmp / f).unlink(missing_ok=True)
+    return tmp / 'passes.bin'
+
+
 def run_case(d, args):
-    r = subprocess.run([str(paths.BIN / 'tone_check'), str(d), '--clock', args.clock, '--d', str(args.d)],
-                       capture_output=True, text=True)
+    cmd = [str(paths.BIN / 'tone_check'), str(d), '--clock', args.clock, '--d', str(args.d)]
+    passes = None if args.fixed_d else case_passes(d)
+    if passes:
+        cmd += ['--passes', str(passes)]
+    r = subprocess.run(cmd, capture_output=True, text=True)
+    if passes:
+        passes.unlink(missing_ok=True)
+        passes.parent.rmdir()
     out = {}
     for l in r.stdout.splitlines():
         m = LINE.match(l)
@@ -72,6 +105,7 @@ def main():
     ap.add_argument('--clock', default='card')
     ap.add_argument('--d', type=int, default=151)
     ap.add_argument('--no-synth', action='store_true')
+    ap.add_argument('--fixed-d', action='store_true', help='no per-sample latency (FF=$80 cases only)')
     ap.add_argument('--synth-only', action='store_true')
     ap.add_argument('-k', default='*')
     args = ap.parse_args()

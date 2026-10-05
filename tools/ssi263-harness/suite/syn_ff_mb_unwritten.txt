@@ -1,0 +1,34 @@
+# Mockingboard mode, secondary socket, FF never written (power-on 00)
+mode mb
+w C40C 00
+w C40E 82
+ssi S 3 80
+ssi S 1 52
+ssi S 2 A8
+ssi S 0 C0
+ssi S 3 7F
+waitirq
+r C40D
+ssi S 0 EC
+w C40D 02
+waitirq
+r C40D
+ssi S 0 CB
+w C40D 02
+waitirq
+r C40D
+ssi S 0 E0
+w C40D 02
+waitirq
+r C40D
+ssi S 0 D1
+w C40D 02
+waitirq
+r C40D
+ssi S 0 C0
+w C40D 02
+waitirq
+ssi S 3 80
+w C40D 02
+samples 1200
+end
