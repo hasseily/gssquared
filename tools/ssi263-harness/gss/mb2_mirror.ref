@@ -1,165 +1,165 @@
 {
- "gsq_rev": "d15bdbf9",
+ "gsq_rev": "08e51692 (modified)",
  "regions": {
   "Mockingboard members": {
    "file": "src/devices/mockingboard/mb2.cpp",
    "line": 110,
-   "raw": "class Mockingboard {\nprivate:\n    struct AudioResetCallbackState {\n        Mockingboard *owner = nullptr;\n    };\n    N6522 *n6522[2];\n    AY8910s *ay_primary;\n    AY8910s *ay_secondary;\n    SSI263 ssi_primary;\n    SSI263 ssi_secondary;\n    SDL_AudioStream *stream;\n    uint64_t last_cycle;\n    uint8_t slot;\n    VidRail *vid;\n    InterruptController *irq_control = nullptr;\n    InterruptController *local_irq_control = nullptr;\n    AudioSystem *audio_system;\n    bool shutting_down = false;\n    uint8_t phasor_mode = PhasorLogic::kModeMockingboard;\n    PhasorLogic::AySelection ay_selected[2] = {};\n    uint64_t vid_cycles_rate;\n    NClock *clock;\n    std::vector<float> audio_buffer;\n    std::vector<float> secondary_audio_buffer;\n    std::vector<float> speech_audio_buffer;\n    uint64_t speech_sample_phase = 0;\n    size_t max_speech_values_per_frame = 0;\n    PhasorAudio::WarmthFilter warmth_filter;\n    PhasorAudio::OutputClockRecovery output_clock_recovery;\n    std::shared_ptr<AudioResetCallbackState> audio_reset_callback_state;\n    static constexpr uint32_t kOutputChannels = 2;\n    static constexpr uint32_t kOutputBytesPerFrame =\n        kOutputChannels * sizeof(float);\n    uint32_t queuedOutputFrames() const {}\n    void resetAndPrimeOutputStream() {}\n    void updateOutputClockRecovery() {}\n    bool mockingboardMode() const {}\n    bool phasorNative() const {}\n    bool echoPlus() const {}\n    bool phasorExtended() const {}\n    bool directSpeechIrq() const {}\n    void updateCardIrq() {}\n    void routeSpeechCompletion(SSI263 &ssi, uint8_t via) {}\n    void clockDevices() {}\n    void setAyClockRate() {}\n    void clearAySelections() {}\n    void modeSwitch(uint32_t addr) {}\n    void ayBusCycle(uint8_t via) {}\npublic:\n    Mockingboard(NClock *clock, InterruptController *irq_control, VidRail *vid, AudioSystem *audio_system, uint8_t slot)\n        : slot(slot), vid(vid), irq_control(irq_control),\n          audio_system(audio_system), clock(clock) {}\n    ~Mockingboard() {}\n    void insert_empty_frame() {}\n    void debug_registers();\n    void accessModeSwitch(uint32_t addr) {}\n    void write(uint32_t addr, uint8_t data) {}\n    uint8_t read(uint32_t addr, uint8_t floating_bus) {}\n    void generate_frame() {}\n    void reset(bool cold_start) {}\n    DebugFormatter *debug() {}\n};\n",
-   "sha": "1c35b7eceb56850c"
+   "raw": "class Mockingboard {\nprivate:\n    struct AudioResetCallbackState {\n        Mockingboard *owner = nullptr;\n    };\n    N6522 *n6522[2];\n    AY8910s *ay_primary;\n    AY8910s *ay_secondary;\n    SSI263 ssi_primary;\n    SSI263 ssi_secondary;\n    SDL_AudioStream *stream;\n    uint64_t last_cycle;\n    uint8_t slot;\n    VidRail *vid;\n    InterruptController *irq_control = nullptr;\n    InterruptController *local_irq_control = nullptr;\n    AudioSystem *audio_system;\n    bool shutting_down = false;\n    uint8_t phasor_mode = PhasorLogic::kModeMockingboard;\n    PhasorLogic::AySelection ay_selected[2] = {};\n    uint64_t vid_cycles_rate;\n    NClock *clock;\n    std::vector<float> audio_buffer;\n    std::vector<float> secondary_audio_buffer;\n    std::vector<float> speech_audio_buffer;\n    std::vector<uint8_t> speech_passes_buffer;\n    uint64_t speech_sample_phase = 0;\n    size_t max_speech_values_per_frame = 0;\n    PhasorAudio::WarmthFilter warmth_filter;\n    PhasorAudio::OutputClockRecovery output_clock_recovery;\n    std::shared_ptr<AudioResetCallbackState> audio_reset_callback_state;\n    static constexpr uint32_t kOutputChannels = 2;\n    static constexpr uint32_t kOutputBytesPerFrame =\n        kOutputChannels * sizeof(float);\n    uint32_t queuedOutputFrames() const {}\n    void resetAndPrimeOutputStream() {}\n    void updateOutputClockRecovery() {}\n    bool mockingboardMode() const {}\n    bool phasorNative() const {}\n    bool echoPlus() const {}\n    bool phasorExtended() const {}\n    bool directSpeechIrq() const {}\n    void updateCardIrq() {}\n    void routeSpeechCompletion(SSI263 &ssi, uint8_t via) {}\n    void clockDevices() {}\n    void setAyClockRate() {}\n    void clearAySelections() {}\n    void modeSwitch(uint32_t addr) {}\n    void ayBusCycle(uint8_t via) {}\npublic:\n    Mockingboard(NClock *clock, InterruptController *irq_control, VidRail *vid, AudioSystem *audio_system, uint8_t slot)\n        : slot(slot), vid(vid), irq_control(irq_control),\n          audio_system(audio_system), clock(clock) {}\n    ~Mockingboard() {}\n    void insert_empty_frame() {}\n    void debug_registers();\n    void accessModeSwitch(uint32_t addr) {}\n    void write(uint32_t addr, uint8_t data) {}\n    uint8_t read(uint32_t addr, uint8_t floating_bus) {}\n    void generate_frame() {}\n    void reset(bool cold_start) {}\n    DebugFormatter *debug() {}\n};\n",
+   "sha": "b5286e72652f3b7b"
   },
   "Mockingboard::Mockingboard": {
    "file": "src/devices/mockingboard/mb2.cpp",
-   "line": 346,
+   "line": 358,
    "raw": "    Mockingboard(NClock *clock, InterruptController *irq_control, VidRail *vid, AudioSystem *audio_system, uint8_t slot)\n        : slot(slot), vid(vid), irq_control(irq_control),\n          audio_system(audio_system), clock(clock) {\n        // we need a local InterruptController to merge the IRQs from the two 6522 chips.\n        local_irq_control = new InterruptController();\n        local_irq_control->register_irq_receiver([this](bool) {\n            updateCardIrq();\n        });\n        /* n6522[0] = new N6522(\"MB_6522 1 0x80\", clock, local_irq_control, event_timer, slot, 0);\n        n6522[1] = new N6522(\"MB_6522 2 0x00\", clock, local_irq_control, event_timer, slot, 1); */\n        n6522[0] = new N6522(\"MB_6522 1 0x80\", clock, local_irq_control, slot, 0);\n        n6522[1] = new N6522(\"MB_6522 2 0x00\", clock, local_irq_control, slot, 1);\n\n        // TODO: this doesn't need irq_control or slot\n        ay_primary = new AY8910s(&audio_buffer, clock, audio_system /* , irq_control, slot */);\n        ay_secondary = new AY8910s(&secondary_audio_buffer, clock, audio_system /* , irq_control, slot */);\n\n        last_cycle = 0;\n\n        vid_cycles_rate = clock->get_vid_cycles_per_second();\n        speech_sample_phase = vid_cycles_rate - OUTPUT_SAMPLE_RATE_INT;\n        const uint64_t max_frame_samples =\n            (clock->get_vid_cycles_per_frame() * OUTPUT_SAMPLE_RATE_INT +\n             vid_cycles_rate - 1) / vid_cycles_rate + 1;\n        max_speech_values_per_frame =\n            static_cast<size_t>(max_frame_samples) * 2;\n\n        stream = audio_system->create_stream(OUTPUT_SAMPLE_RATE_INT, 2, SDL_AUDIO_F32LE, false);\n\n        // AudioSystem clears bound streams when the default device format\n        // changes. Re-prime this stream in the same event turn; otherwise its\n        // first post-change video frame is smaller than a common host callback\n        // and starts with an audible underrun. The indirection makes the\n        // retained callback harmless after this card has been destroyed.\n        audio_reset_callback_state =\n            std::make_shared<AudioResetCallbackState>();\n        audio_reset_callback_state->owner = this;\n        audio_system->register_device_reset_callback(\n            [state = std::weak_ptr<AudioResetCallbackState>(\n                 audio_reset_callback_state)]() {\n                if (const std::shared_ptr<AudioResetCallbackState> live =\n                        state.lock();\n                    live && live->owner) {\n                    live->owner->resetAndPrimeOutputStream();\n                }\n            });\n\n        // Port A pull-ups hold the bus high at power-on; match reset().\n        n6522[0]->set_ira(0xFF);\n        n6522[1]->set_ira(0xFF);\n\n        clock->set_cycle_handler([this]() { clockDevices(); });\n    }\n",
    "sha": "42911d75f36a1805"
   },
   "Mockingboard::~Mockingboard": {
    "file": "src/devices/mockingboard/mb2.cpp",
-   "line": 399,
+   "line": 411,
    "raw": "    ~Mockingboard() {\n        audio_reset_callback_state->owner = nullptr;\n        shutting_down = true;\n        updateCardIrq();\n        audio_system->destroy_stream(stream);\n\n        delete n6522[0];\n        delete n6522[1];\n        delete ay_primary;\n        delete ay_secondary;\n        delete local_irq_control;\n    }\n",
    "sha": "56d1a44e59582322"
   },
   "mockingboardMode": {
    "file": "src/devices/mockingboard/mb2.cpp",
-   "line": 194,
+   "line": 198,
    "raw": "    bool mockingboardMode() const {\n        return PhasorLogic::isMockingboard(phasor_mode);\n    }\n",
    "sha": "7e564fe6f2292a57"
   },
   "phasorNative": {
    "file": "src/devices/mockingboard/mb2.cpp",
-   "line": 197,
+   "line": 201,
    "raw": "    bool phasorNative() const {\n        return PhasorLogic::isPhasorNative(phasor_mode);\n    }\n",
    "sha": "44adbb09526e4e84"
   },
   "echoPlus": {
    "file": "src/devices/mockingboard/mb2.cpp",
-   "line": 200,
+   "line": 204,
    "raw": "    bool echoPlus() const { return PhasorLogic::isEchoPlus(phasor_mode); }\n",
    "sha": "f5d51ffaf6d0bb44"
   },
   "phasorExtended": {
    "file": "src/devices/mockingboard/mb2.cpp",
-   "line": 201,
+   "line": 205,
    "raw": "    bool phasorExtended() const {\n        return PhasorLogic::isExtended(phasor_mode);\n    }\n",
    "sha": "4808103582c65bc8"
   },
   "directSpeechIrq": {
    "file": "src/devices/mockingboard/mb2.cpp",
-   "line": 205,
+   "line": 209,
    "raw": "    bool directSpeechIrq() const {\n        if (!phasorNative()) return false;\n        return (ssi_primary.ready() && ssi_primary.interruptsEnabled()) ||\n               (ssi_secondary.ready() && ssi_secondary.interruptsEnabled());\n    }\n",
    "sha": "8aa2b6ed21f24eaf"
   },
   "updateCardIrq": {
    "file": "src/devices/mockingboard/mb2.cpp",
-   "line": 211,
+   "line": 215,
    "raw": "    void updateCardIrq() {\n        if (!irq_control) return;\n        const bool asserted = !shutting_down &&\n            ((local_irq_control && local_irq_control->any_irq_asserted()) ||\n             directSpeechIrq());\n        irq_control->set_irq(static_cast<device_irq_id>(slot), asserted);\n    }\n",
    "sha": "f0da74184b1b20d5"
   },
   "routeSpeechCompletion": {
    "file": "src/devices/mockingboard/mb2.cpp",
-   "line": 219,
+   "line": 223,
    "raw": "    void routeSpeechCompletion(SSI263 &ssi, uint8_t via) {\n        if (ssi.takeCompletion() && mockingboardMode() &&\n            ssi.interruptsEnabled()) {\n            n6522[via]->signal_ca1_falling_edge();\n        }\n    }\n",
    "sha": "c258cb43ffe65b18"
   },
   "clockDevices": {
    "file": "src/devices/mockingboard/mb2.cpp",
-   "line": 226,
-   "raw": "    void clockDevices() {\n        n6522[PhasorLogic::kViaHigh]->incr_cycle();\n        n6522[PhasorLogic::kViaLow]->incr_cycle();\n\n        // Render speech on the emulated cycle timeline, before advancing the\n        // XCK state at this boundary. Bulk-rendering at the end of a video\n        // frame would incorrectly apply the final phone/closure state to all\n        // roughly 801 samples that came before it. The integer phase\n        // accumulator converts the actual video-cycle rate to exactly 48 kHz\n        // without accumulating floating-point drift.\n        if (PhasorLogic::advanceAudioSamplePhase(\n                speech_sample_phase, OUTPUT_SAMPLE_RATE_INT,\n                vid_cycles_rate)) {\n            const float secondary = ssi_secondary.renderSample();\n            const float primary = ssi_primary.renderSample();\n            // Single-step mode can suppress frame delivery while cycle\n            // callbacks continue. Keep at most two frames of recent samples;\n            // delivery below discards any older, now-inaudible history.\n            if (max_speech_values_per_frame != 0 &&\n                speech_audio_buffer.size() >=\n                    max_speech_values_per_frame * 2) {\n                speech_audio_buffer.erase(\n                    speech_audio_buffer.begin(),\n                    speech_audio_buffer.begin() +\n                        max_speech_values_per_frame);\n            }\n            // Retain the two mono socket signals independently. The card\n            // mixer centers each one at constant power after the AY banks\n            // have rendered, rather than treating these as hard L/R samples.\n            speech_audio_buffer.push_back(secondary);\n            speech_audio_buffer.push_back(primary);\n        }\n\n        // NClock's video-cycle callback is the effective SSI XCK cadence\n        // (~1.020484 MHz). Completion routing therefore happens at the exact\n        // XCK boundary rather than being delayed until the next audio frame.\n        ssi_primary.clockXck();\n        ssi_secondary.clockXck();\n        routeSpeechCompletion(ssi_primary, PhasorLogic::kViaHigh);\n        routeSpeechCompletion(ssi_secondary, PhasorLogic::kViaLow);\n        updateCardIrq();\n    }\n",
-   "sha": "dd2f289e17f30abe"
+   "line": 230,
+   "raw": "    void clockDevices() {\n        n6522[PhasorLogic::kViaHigh]->incr_cycle();\n        n6522[PhasorLogic::kViaLow]->incr_cycle();\n\n        // Render speech on the emulated cycle timeline, before advancing the\n        // XCK state at this boundary. Bulk-rendering at the end of a video\n        // frame would incorrectly apply the final phone/closure state to all\n        // roughly 801 samples that came before it. The integer phase\n        // accumulator converts the actual video-cycle rate to exactly 48 kHz\n        // without accumulating floating-point drift.\n        if (PhasorLogic::advanceAudioSamplePhase(\n                speech_sample_phase, OUTPUT_SAMPLE_RATE_INT,\n                vid_cycles_rate)) {\n            const float secondary = ssi_secondary.renderSample();\n            const float primary = ssi_primary.renderSample();\n            // Single-step mode can suppress frame delivery while cycle\n            // callbacks continue. Keep at most two frames of recent samples;\n            // delivery below discards any older, now-inaudible history.\n            if (max_speech_values_per_frame != 0 &&\n                speech_audio_buffer.size() >=\n                    max_speech_values_per_frame * 2) {\n                speech_audio_buffer.erase(\n                    speech_audio_buffer.begin(),\n                    speech_audio_buffer.begin() +\n                        max_speech_values_per_frame);\n                speech_passes_buffer.erase(\n                    speech_passes_buffer.begin(),\n                    speech_passes_buffer.begin() +\n                        max_speech_values_per_frame);\n            }\n            // Retain the two mono socket signals independently. The card\n            // mixer routes them after the AY banks have rendered: the\n            // secondary to the left channel, the primary to the right.\n            speech_audio_buffer.push_back(secondary);\n            speech_audio_buffer.push_back(primary);\n            speech_passes_buffer.push_back(\n                ssi_secondary.renderedSamplePasses());\n            speech_passes_buffer.push_back(\n                ssi_primary.renderedSamplePasses());\n        }\n\n        // NClock's video-cycle callback is the effective SSI XCK cadence\n        // (~1.020484 MHz). Completion routing therefore happens at the exact\n        // XCK boundary rather than being delayed until the next audio frame.\n        ssi_primary.clockXck();\n        ssi_secondary.clockXck();\n        routeSpeechCompletion(ssi_primary, PhasorLogic::kViaHigh);\n        routeSpeechCompletion(ssi_secondary, PhasorLogic::kViaLow);\n        updateCardIrq();\n    }\n",
+   "sha": "0940e41239554a2e"
   },
   "setAyClockRate": {
    "file": "src/devices/mockingboard/mb2.cpp",
-   "line": 269,
+   "line": 281,
    "raw": "    void setAyClockRate() {\n        const uint8_t multiplier = phasorNative() ? 2 : 1;\n        ay_primary->setClockMultiplier(multiplier);\n        ay_secondary->setClockMultiplier(multiplier);\n    }\n",
    "sha": "f03a3e15450611a8"
   },
   "clearAySelections": {
    "file": "src/devices/mockingboard/mb2.cpp",
-   "line": 275,
+   "line": 287,
    "raw": "    void clearAySelections() {\n        for (auto &selection : ay_selected) {\n            selection = {false, false};\n        }\n    }\n",
    "sha": "fd8334fb80cf3dd2"
   },
   "modeSwitch": {
    "file": "src/devices/mockingboard/mb2.cpp",
-   "line": 281,
+   "line": 293,
    "raw": "    void modeSwitch(uint32_t addr) {\n        const uint8_t next_mode =\n            PhasorLogic::updateModeLatch(phasor_mode,\n                                         static_cast<uint16_t>(addr));\n        if (next_mode == phasor_mode) return;\n\n        phasor_mode = next_mode;\n        setAyClockRate();\n        if (!phasorExtended()) clearAySelections();\n\n        // A/R is a level request. Re-route an already pending response when\n        // software changes modes, just as the Phasor GAL does.\n        if (mockingboardMode()) {\n            if (ssi_primary.ready() && ssi_primary.interruptsEnabled()) {\n                n6522[PhasorLogic::kViaHigh]->signal_ca1_falling_edge();\n            }\n            if (ssi_secondary.ready() && ssi_secondary.interruptsEnabled()) {\n                n6522[PhasorLogic::kViaLow]->signal_ca1_falling_edge();\n            }\n        }\n        updateCardIrq();\n    }\n",
    "sha": "48456dfbe8fd9259"
   },
   "ayBusCycle": {
    "file": "src/devices/mockingboard/mb2.cpp",
-   "line": 304,
+   "line": 316,
    "raw": "    void ayBusCycle(uint8_t via) {\n        // AY8910s renders chip 0 on the left and chip 1 on the right. Map\n        // $Cn00/VIA0 to chip 0 and $Cn80/VIA1 to chip 1 even though the\n        // legacy N6522 array uses the opposite index order.\n        const uint8_t ay_chip = PhasorLogic::ayChipForVia(via);\n        const uint8_t ddra = n6522[via]->get_ddra();\n        const uint8_t pa = static_cast<uint8_t>(\n            (n6522[via]->get_ora() & ddra) | static_cast<uint8_t>(~ddra));\n        const uint8_t ddrb = n6522[via]->get_ddrb();\n        const uint8_t pb = static_cast<uint8_t>(\n            (n6522[via]->get_orb() & ddrb) | static_cast<uint8_t>(~ddrb));\n        const double t = static_cast<double>(clock->get_vid_cycles()) /\n                         static_cast<double>(vid_cycles_rate);\n\n        const PhasorLogic::AyRoute route =\n            PhasorLogic::decodeAyRoute(phasor_mode, via, pb,\n                                       ay_selected[via]);\n\n        if (route.reset) {\n            ay_primary->busCycle(ay_chip, pa, pb, t);\n            ay_secondary->busCycle(ay_chip, pa, pb, t);\n            ay_selected[via] = route.next_selection;\n            n6522[via]->set_ira(0xFF);\n            return;\n        }\n\n        AyBusResult primary_result{false, 0};\n        AyBusResult secondary_result{false, 0};\n        if (route.drive_primary) {\n            primary_result = ay_primary->busCycle(ay_chip, pa, pb, t);\n        }\n        if (route.drive_secondary) {\n            secondary_result = ay_secondary->busCycle(ay_chip, pa, pb, t);\n        }\n\n        n6522[via]->set_ira(PhasorLogic::combineAyRead(\n            primary_result.drove_data, primary_result.data,\n            secondary_result.drove_data, secondary_result.data));\n        ay_selected[via] = route.next_selection;\n    }\n",
    "sha": "f5fcc80fef5bfb7d"
   },
   "accessModeSwitch": {
    "file": "src/devices/mockingboard/mb2.cpp",
-   "line": 421,
+   "line": 433,
    "raw": "    void accessModeSwitch(uint32_t addr) {\n        modeSwitch(addr);\n    }\n",
    "sha": "7b15144d4e3de201"
   },
   "write": {
    "file": "src/devices/mockingboard/mb2.cpp",
-   "line": 425,
+   "line": 437,
    "raw": "    void write(uint32_t addr, uint8_t data) {   // this is address & 0xFF\n        const uint8_t offset = addr & 0xFF;\n        const uint8_t reg = offset & 0x0F;\n        const PhasorLogic::ViaHits via_hits =\n            PhasorLogic::decodeViaHits(phasor_mode, offset);\n\n        for (uint8_t via = 0; via < 2; ++via) {\n            if (!PhasorLogic::viaHit(via_hits, via)) continue;\n            n6522[via]->write(reg, data);\n            if (reg == MB_6522_ORB) ayBusCycle(via);\n        }\n\n        // SSI decoding is additional to (and may overlap) the VIA decode.\n        // A6 selects the primary/right socket and A5 the secondary/left;\n        // $60-$7F therefore broadcasts to both devices.\n        const PhasorLogic::SsiSelects ssi_selects =\n            PhasorLogic::decodeSsiWrites(phasor_mode, offset);\n        const uint8_t ssi_reg = SSI263::registerForOffset(offset);\n        if (ssi_selects.primary) ssi_primary.write(ssi_reg, data);\n        if (ssi_selects.secondary) ssi_secondary.write(ssi_reg, data);\n        updateCardIrq();\n    }\n",
    "sha": "47202c6d5c55cc2f"
   },
   "read": {
    "file": "src/devices/mockingboard/mb2.cpp",
-   "line": 448,
+   "line": 460,
    "raw": "    uint8_t read(uint32_t addr, uint8_t floating_bus) {\n        const uint8_t offset = addr & 0xFF;\n\n        // Native SSI reads exist only where neither interleaved VIA is\n        // selected. D7 overlays the Apple floating bus; when both sockets\n        // are selected, the secondary socket owns D7.\n        const PhasorLogic::SsiSocket status_socket =\n            PhasorLogic::nativeStatusSocket(phasor_mode, offset);\n        if (status_socket != PhasorLogic::SsiSocket::None) {\n            const bool d7 = status_socket == PhasorLogic::SsiSocket::Secondary\n                                ? ssi_secondary.ready()\n                                : ssi_primary.ready();\n            return PhasorLogic::nativeStatusValue(floating_bus, d7);\n        }\n\n        const PhasorLogic::ViaHits via_hits =\n            PhasorLogic::decodeViaHits(phasor_mode, offset);\n        uint8_t result = 0;\n        bool any_hit = false;\n        for (uint8_t via = 0; via < 2; ++via) {\n            if (!PhasorLogic::viaHit(via_hits, via)) continue;\n            result |= PhasorLogic::readVia(phasor_mode, offset,\n                                           *n6522[via]);\n            any_hit = true;\n        }\n        return any_hit ? result : floating_bus;\n    }\n",
    "sha": "b27a451218fdfa60"
   },
   "generate_frame": {
    "file": "src/devices/mockingboard/mb2.cpp",
-   "line": 476,
-   "raw": "    void generate_frame() {\n        static int frames = 0;\n\n        if (max_speech_values_per_frame != 0 &&\n            speech_audio_buffer.size() > max_speech_values_per_frame) {\n            speech_audio_buffer.erase(\n                speech_audio_buffer.begin(),\n                speech_audio_buffer.end() - max_speech_values_per_frame);\n        }\n\n        // Use the exact count produced by the shared cycle-to-sample phase.\n        // This keeps both SSI streams and both AY banks sample-aligned even\n        // when the rational cadence alternates frame sizes.\n        const uint32_t samples_this_frame = static_cast<uint32_t>(\n            speech_audio_buffer.size() / 2);\n    \n        last_cycle = clock->get_vid_cycles();\n    \n        const uint8_t primary_mask = echoPlus() ? 0x02 : 0x03;\n        const uint8_t secondary_mask = phasorNative() ? 0x03 :\n                                       (echoPlus() ? 0x02 : 0x00);\n        ay_primary->generateSamples(samples_this_frame, primary_mask);\n\n        secondary_audio_buffer.clear();\n        ay_secondary->generateSamples(samples_this_frame, secondary_mask);\n\n        // Speech samples were produced on their original XCK timeline. Mix\n        // both mono SSI sockets at constant-power center, preserving the AY\n        // banks' existing stereo topology. Do one final saturation only after\n        // every card source has contributed, then apply Appletini's fixed +8\n        // card-level warmth network on the exact 48 kHz emulated timeline.\n        const bool secondary_ay_audible = phasorNative() || echoPlus();\n        const size_t value_count = std::min(\n            audio_buffer.size(),\n            std::min(secondary_audio_buffer.size(),\n                     speech_audio_buffer.size()));\n        for (size_t i = 0; i + 1 < value_count; i += 2) {\n            const PhasorLogic::StereoSample mixed =\n                PhasorLogic::mixAudioSample(\n                    audio_buffer[i], audio_buffer[i + 1],\n                    secondary_ay_audible ? secondary_audio_buffer[i] : 0.0f,\n                    secondary_ay_audible ? secondary_audio_buffer[i + 1] : 0.0f,\n                    speech_audio_buffer[i], speech_audio_buffer[i + 1]);\n            const PhasorAudio::StereoSample shaped =\n                warmth_filter.process(mixed.left, mixed.right);\n            audio_buffer[i] = shaped.left;\n            audio_buffer[i + 1] = shaped.right;\n        }\n        speech_audio_buffer.clear();\n    \n        // Clear the audio buffer after each frame to prevent memory buildup\n        // Send the generated audio data to the SDL audio stream\n        int abs = audio_buffer.size();\n        if (abs > 0) {\n            //printf(\"generate_mockingboard_frame: %zu\\n\", mb_d->audio_buffer.size());\n            updateOutputClockRecovery();\n            audio_system->put_stream_data(\n                stream, audio_buffer.data(),\n                static_cast<uint32_t>(audio_buffer.size() * sizeof(float)));\n        }\n        audio_buffer.clear();\n    \n        if (DEBUG(DEBUG_MOCKINGBOARD)) {\n            if (frames++ > 60) {\n                frames = 0;\n                // Get the number of samples in SDL audio stream buffer\n                int samples_in_buffer = 0;\n                if (stream) {\n                    samples_in_buffer = SDL_GetAudioStreamAvailable(stream) / sizeof(float);\n                }\n                printf(\"MB Status: buffer: %d, audio buffer size: %d, samples_per_frame: %d\\n\", samples_in_buffer, abs, samples_this_frame);\n            }\n        }\n    }\n",
-   "sha": "e0484c6f4a2215f5"
+   "line": 488,
+   "raw": "    void generate_frame() {\n        static int frames = 0;\n\n        if (max_speech_values_per_frame != 0 &&\n            speech_audio_buffer.size() > max_speech_values_per_frame) {\n            speech_audio_buffer.erase(\n                speech_audio_buffer.begin(),\n                speech_audio_buffer.end() - max_speech_values_per_frame);\n            speech_passes_buffer.erase(\n                speech_passes_buffer.begin(),\n                speech_passes_buffer.end() - max_speech_values_per_frame);\n        }\n\n        // Use the exact count produced by the shared cycle-to-sample phase.\n        // This keeps both SSI streams and both AY banks sample-aligned even\n        // when the rational cadence alternates frame sizes.\n        const uint32_t samples_this_frame = static_cast<uint32_t>(\n            speech_audio_buffer.size() / 2);\n    \n        last_cycle = clock->get_vid_cycles();\n    \n        const uint8_t primary_mask = echoPlus() ? 0x02 : 0x03;\n        const uint8_t secondary_mask = phasorNative() ? 0x03 :\n                                       (echoPlus() ? 0x02 : 0x00);\n        ay_primary->generateSamples(samples_this_frame, primary_mask);\n\n        secondary_audio_buffer.clear();\n        ay_secondary->generateSamples(samples_this_frame, secondary_mask);\n\n        // Speech samples were produced on their original XCK timeline. Mix\n        // the secondary SSI socket into the left channel and the primary\n        // into the right, as Appletini does, preserving the AY\n        // banks' existing stereo topology. Do one final saturation only after\n        // every card source has contributed, then apply Appletini's fixed +8\n        // card-level warmth network on the exact 48 kHz emulated timeline,\n        // each speech sample entering it when its tract passes deliver it.\n        const bool secondary_ay_audible = phasorNative() || echoPlus();\n        const size_t value_count = std::min(\n            audio_buffer.size(),\n            std::min(secondary_audio_buffer.size(),\n                     speech_audio_buffer.size()));\n        for (size_t i = 0; i + 1 < value_count; i += 2) {\n            const PhasorLogic::StereoSample mixed =\n                PhasorLogic::mixAudioSample(\n                    audio_buffer[i], audio_buffer[i + 1],\n                    secondary_ay_audible ? secondary_audio_buffer[i] : 0.0f,\n                    secondary_ay_audible ? secondary_audio_buffer[i + 1] : 0.0f,\n                    speech_audio_buffer[i], speech_audio_buffer[i + 1],\n                    speech_passes_buffer[i], speech_passes_buffer[i + 1]);\n            const PhasorAudio::StereoSample shaped =\n                warmth_filter.process(mixed.left, mixed.right,\n                                      mixed.left_speech_passes,\n                                      mixed.right_speech_passes);\n            audio_buffer[i] = shaped.left;\n            audio_buffer[i + 1] = shaped.right;\n        }\n        speech_audio_buffer.clear();\n        speech_passes_buffer.clear();\n    \n        // Clear the audio buffer after each frame to prevent memory buildup\n        // Send the generated audio data to the SDL audio stream\n        int abs = audio_buffer.size();\n        if (abs > 0) {\n            //printf(\"generate_mockingboard_frame: %zu\\n\", mb_d->audio_buffer.size());\n            updateOutputClockRecovery();\n            audio_system->put_stream_data(\n                stream, audio_buffer.data(),\n                static_cast<uint32_t>(audio_buffer.size() * sizeof(float)));\n        }\n        audio_buffer.clear();\n    \n        if (DEBUG(DEBUG_MOCKINGBOARD)) {\n            if (frames++ > 60) {\n                frames = 0;\n                // Get the number of samples in SDL audio stream buffer\n                int samples_in_buffer = 0;\n                if (stream) {\n                    samples_in_buffer = SDL_GetAudioStreamAvailable(stream) / sizeof(float);\n                }\n                printf(\"MB Status: buffer: %d, audio buffer size: %d, samples_per_frame: %d\\n\", samples_in_buffer, abs, samples_this_frame);\n            }\n        }\n    }\n",
+   "sha": "e25ac1b5023a0fcd"
   },
   "reset": {
    "file": "src/devices/mockingboard/mb2.cpp",
-   "line": 551,
-   "raw": "    void reset(bool cold_start) {\n        phasor_mode = PhasorLogic::kModeMockingboard;\n        clearAySelections();\n        setAyClockRate();\n        n6522[0]->reset();\n        n6522[1]->reset();\n        ay_primary->reset();\n        ay_secondary->reset();\n        ssi_primary.reset(cold_start);\n        ssi_secondary.reset(cold_start);\n        if (cold_start) {\n            speech_audio_buffer.clear();\n            speech_sample_phase = vid_cycles_rate - OUTPUT_SAMPLE_RATE_INT;\n            warmth_filter.reset();\n        }\n        // Port A pull-ups on the Mockingboard hold the bus high whenever\n        // neither the AY nor the VIA is driving. Pre-seed IRA so the CPU\n        // sees $FF on the very first ORA read (before any bus cycle).\n        n6522[0]->set_ira(0xFF);\n        n6522[1]->set_ira(0xFF);\n        updateCardIrq();\n    }\n",
-   "sha": "ad04ae50e6f8a036"
+   "line": 572,
+   "raw": "    void reset(bool cold_start) {\n        phasor_mode = PhasorLogic::kModeMockingboard;\n        clearAySelections();\n        setAyClockRate();\n        n6522[0]->reset();\n        n6522[1]->reset();\n        ay_primary->reset();\n        ay_secondary->reset();\n        ssi_primary.reset(cold_start);\n        ssi_secondary.reset(cold_start);\n        if (cold_start) {\n            speech_audio_buffer.clear();\n            speech_passes_buffer.clear();\n            speech_sample_phase = vid_cycles_rate - OUTPUT_SAMPLE_RATE_INT;\n            warmth_filter.reset();\n        }\n        // Port A pull-ups on the Mockingboard hold the bus high whenever\n        // neither the AY nor the VIA is driving. Pre-seed IRA so the CPU\n        // sees $FF on the very first ORA read (before any bus cycle).\n        n6522[0]->set_ira(0xFF);\n        n6522[1]->set_ira(0xFF);\n        updateCardIrq();\n    }\n",
+   "sha": "5ef66aa346696625"
   },
   "mb_write_Cx00": {
    "file": "src/devices/mockingboard/mb2.cpp",
-   "line": 590,
+   "line": 612,
    "raw": "void mb_write_Cx00(void *context, uint32_t addr, uint8_t data) {\n    mb_cpu_data *mb_d = (mb_cpu_data *)context;\n    mb_d->mockingboard->write(addr, data);\n}\n",
    "sha": "89af126115193502"
   },
   "mb_read_Cx00": {
    "file": "src/devices/mockingboard/mb2.cpp",
-   "line": 595,
+   "line": 617,
    "raw": "uint8_t mb_read_Cx00(void *context, uint32_t addr) {\n    mb_cpu_data *mb_d = (mb_cpu_data *)context;\n    return mb_d->mockingboard->read(\n        addr, mb_d->computer->mmu->floating_bus_read());\n}\n",
    "sha": "6c4f6e815facc365"
   },
   "mb_write_C0nx": {
    "file": "src/devices/mockingboard/mb2.cpp",
-   "line": 601,
+   "line": 623,
    "raw": "void mb_write_C0nx(void *context, uint32_t addr, uint8_t /*data*/) {\n    mb_cpu_data *mb_d = (mb_cpu_data *)context;\n    mb_d->mockingboard->accessModeSwitch(addr);\n}\n",
    "sha": "0cabf78a3210622a"
   },
   "mb_read_C0nx": {
    "file": "src/devices/mockingboard/mb2.cpp",
-   "line": 606,
+   "line": 628,
    "raw": "uint8_t mb_read_C0nx(void *context, uint32_t addr) {\n    mb_cpu_data *mb_d = (mb_cpu_data *)context;\n    const uint8_t floating_bus = mb_d->computer->mmu->floating_bus_read();\n    mb_d->mockingboard->accessModeSwitch(addr);\n    return floating_bus;\n}\n",
    "sha": "af4c744c1d245b8d"
   },
   "init_slot_mockingboard": {
    "file": "src/devices/mockingboard/mb2.cpp",
-   "line": 613,
+   "line": 635,
    "raw": "void init_slot_mockingboard(computer_t *computer, SlotType_t slot) {\n\n    printf(\"init_slot_mockingboard: %d\\n\", slot);\n\n    mb_cpu_data *mb_d = new mb_cpu_data;\n    mb_d->id = DEVICE_ID_MOCKINGBOARD;\n    mb_d->_slot = slot;\n    mb_d->computer = computer;\n    mb_d->clock = computer->clock;\n    mb_d->audio_system = computer->audio_system;\n    mb_d->irq_control = computer->irq_control;\n    mb_d->vid = &computer->clock->vid;\n    mb_d->mockingboard = new Mockingboard(computer->clock, computer->irq_control, mb_d->vid, computer->audio_system, slot);\n    \n    mb_d->slot = slot;\n\n    computer->mmu->map_c1cf_page_write_h(0xC0 + slot, { mb_write_Cx00, mb_d }, \"MB_IO\");\n    computer->mmu->map_c1cf_page_read_h(0xC0 + slot, { mb_read_Cx00, mb_d }, \"MB_IO\");\n\n    // Phasor's mode GAL observes any read or write at $C080 + slot*$10.\n    // A3 first clears the mode latch, then A2..A0 are ORed into it.\n    const uint16_t mode_base = PhasorLogic::modeSwitchBase(slot);\n    for (uint16_t offset = 0; offset < 0x10; ++offset) {\n        computer->mmu->set_C0XX_read_handler(\n            mode_base + offset, { mb_read_C0nx, mb_d });\n        computer->mmu->set_C0XX_write_handler(\n            mode_base + offset, { mb_write_C0nx, mb_d });\n    }\n\n    mb_d->mockingboard->insert_empty_frame();\n\n    // this can move to the class\n    // set up a reset handler to reset the chips on mockingboard\n    computer->register_reset_handler(\n        [mb_d](bool cold_start) {\n            mb_d->mockingboard->reset(cold_start);\n            return true;\n        });\n\n    // this can move to the class\n    // register a frame processor for the mockingboard.\n    computer->device_frame_dispatcher->registerHandler([mb_d,computer]() {\n        // if in single step, return.\n        if (computer->execution_mode == EXEC_NORMAL) {\n            mb_d->mockingboard->generate_frame();\n        }\n        return true;\n    });\n\n    computer->register_shutdown_handler([mb_d]() {\n        delete mb_d->mockingboard;\n        //SDL_DestroyAudioStream(mb_d->stream);\n        delete mb_d;\n        return true;\n    });\n\n    computer->register_debug_display_handler(\n        \"phasor\",\n        DH_MOCKINGBOARD, // unique ID for this, need to have in a header.\n        [mb_d]() -> DebugFormatter * {\n            DebugFormatter *df = mb_d->mockingboard->debug();\n            \n            mb_d->audio_system->getCurrentAudioFormat(df);            \n            return df;\n            //return debug_registers_6522(mb_d);\n            //return nullptr;\n        }\n    );\n}\n",
    "sha": "2158c3679073ae1b"
   },
   "PhasorLogic::advanceAudioSamplePhase": {
    "file": "src/devices/mockingboard/PhasorLogic.hpp",
-   "line": 143,
+   "line": 147,
    "raw": "constexpr bool advanceAudioSamplePhase(uint64_t &phase,\n                                       uint64_t sample_rate,\n                                       uint64_t cycle_rate) {\n    phase += sample_rate;\n    if (phase < cycle_rate) return false;\n    phase -= cycle_rate;\n    return true;\n}\n",
    "sha": "432d35d1e81a81c9"
   }
  },
  "mirror": {
-  "gss/card_gss.cpp": "ae970bf445ee573e",
+  "gss/card_gss.cpp": "fac9aec8aa5f4618",
   "common/driver.hpp": "1ec72426652c7950"
  }
 }

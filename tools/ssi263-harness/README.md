@@ -236,10 +236,68 @@ on the voice and were not rerun):
   was. With the latency removed (tone_check --d 0) it stays at most 16 LSB
   (checked on syn_ff_phones_FF, syn_ff_sweep_coarse, syn_ff_ctl_00).
 
-So GSSquared's warmth stage is not bit-exact with the RTL's. The difference
-is small (about -46 dBFS at worst on speech), but by the rule that the RTL
-is the reference it is a difference. The card gates below were set from the
-3101934 residual (93 and 27.7) and now fail on it: see "Known open items".
+So the collapsed WarmthChannel above was not bit-exact with the RTL, and
+since the filter frequency its residual failed the card gates (see "Known
+open items" for the gate history).
+
+### The warmth fix: per-sample voice latency and the truncation (2026-10-05)
+
+`PhasorAudio::WarmthChannel` now runs each sample period as the RTL does, in
+two closed-form steps per pole (constant cost a sample, no per-clock loop):
+
+* The previous input for 18, 160 or 302 fabric clocks: the voice latency
+  (9/151/293 for 0/1/2 tract passes) plus 9, the clocks from the poles to
+  the card output read (five tone registers, the read at tick - 3, and the
+  one clock the poles see the mixer input late). Then the new input for the
+  rest of the period.
+* The period is the card's, 2777 or 2778 clocks, from the tick accumulator
+  (+1546188 a clock), phased so that the first sample's tick clears it, as
+  `rtl_card.hpp` clocks the bench.
+* The truncating `>>> 16/14/13`: a pole does not move while its target is
+  0 to 2^s - 1 Q12 units above it (the dead band), rises to the top of that
+  band, falls onto the target, and loses half a step a clock to the floor on
+  the way. The closed form decays linearly toward the middle of the band and
+  stops at those limits. Without this (the plain two-piece form) the
+  residual stayed at the dead band, 16 LSB (16.0 RMS a window).
+
+`SSI263::renderedSamplePasses()` reports the tract passes of the sample
+`renderSample()` returned (the one computed at the previous tick; a phone
+start that idles the pipeline afterwards does not change them),
+`PhasorLogic::mixAudioSample` routes them with the speech (secondary to the
+left, primary to the right), and mb2.cpp's `generate_frame` keeps them in
+`speech_passes_buffer`, index for index with the speech, for
+`WarmthFilter::process`. `gss/card_gss.cpp` mirrors that (checked line by
+line, `gss/mb2_mirror.ref` re-recorded). `tone_check` hands WarmthChannel the
+same passes as the model (`passesFor`), and `tone_suite.py` part 3 checks it
+against the model with per-sample passes.
+
+Tone-stage results (WarmthChannel against the model, which is the RTL):
+
+| Input | Passes | Max error | Worst 10 ms RMS |
+| --- | --- | --- | --- |
+| steps to both rails, full-scale noise, log sweep, through `tone_rtl` | 1 | 3 | (SNR 77-105 dB) |
+| the same plus short holds between the rails and low-level signal (`tone_suite.py` part 3) | random 0/1/2; FF $00, $E6, $F5, $FF sequences | 4 | 1.2 |
+| GSSquared's own socket renders (card_gss_dbg, its real passes): syn_ff_ctl_00, syn_ff_demo_F5, syn_ff_phones_FF, syn_ff_start_phase_FF, syn_ff_sweep_coarse, syn_phone_31 | per sample | 3 | 0.7 |
+
+The old collapsed form gave up to 390-438 on the synthetic inputs and 169
+(52.4 RMS) on speech; the plain two-piece form without the truncation model
+16 (16.0).
+
+Card check, targeted (`run_suite.py -k`, references rendered for these
+cases only, not the full suite): every case EXACT with the card check
+passing.
+
+| Case | FF | Before (08e51692) | After |
+| --- | --- | --- | --- |
+| syn_ff_ctl_00 | $00 then $FF | FAIL: max 169, window 34.3 | max 2, window 0.4 |
+| syn_phone_31 | $E6 | FAIL: max 134, window 52.4 | max 2, window 0.5 |
+| phmenu_01 (TTS trace, re-captured, SHA-256 identical) | $F5 | FAIL: max 142, window 39.9, floor 3.0 | max 5, window 1.2, floor 0.5 |
+| syn_ff_demo_80 | $80 | pass: max 32, window 10.1 | max 3, window 0.7 |
+| syn_amp_1 (amplitude 1, a quiet phone) | $E6 | pass: max 16, window 11.0 | max 4, window 0.8 |
+
+The full suite was not rerun, so the gates and the residual figures in
+`compare.py` (CARD_TONE_MAX_ERR 93, CARD_TONE_WIN_RMS 27.7,
+CARD_FLOOR_MEASURED 3.4) are unchanged; see "Known open items".
 
 ## Inputs
 
@@ -340,7 +398,9 @@ Phasor mixer and tone stage; PSGs excluded on both sides):
 
 The sample and window limits are about 1.4 times GSSquared's measured
 WARMTH residual (93 per sample, 27.7 per window: "The tone stage"), the
-one card difference left when the speech is identical. They apply to the
+one card difference left when the speech is identical. That was the
+collapsed warmth form at 3101934; since the warmth fix the residual is at
+most 5 and 1.2 on the cases measured, and the limits are unchanged. They apply to the
 whole card output, so a case whose speech differs fails them too.
 
 **The suite is whole and current**: no `-k`, every trace of
@@ -436,21 +496,21 @@ same format, for finding the first state that differs.
 
 ## Known open items
 
-* WARMTH is not bit-exact, and since the filter-frequency control the
-  card gates fail on it. GSSquared's `PhasorAudio::WarmthChannel` collapses
-  the RTL's per-clock one-poles into one step per sample and has no voice
-  latency. With FF=$80 the RTL's voice reaches the mixer 154 clocks after
-  the tick and the card output differed by up to 93 LSB (27.7 RMS a window);
-  with FF above $80 about half the samples take two tract passes and arrive
-  293 clocks after the tick, and the residual grows to 169 LSB (52.4 RMS),
-  over the sample (128) and window (40) gates in 35 of 177 cases, every one
-  of them with FF above $80 (the $E6 synthetic cases, mb-audit's $E9, the
-  TTS traces' $F5, the FF cases at $FF), while every socket sample is
-  identical. Either WarmthChannel models the per-sample voice latency (the
-  SSI-263 would report its passes, and mb2.cpp's mix and the mirror would
-  change with it) or the gates are re-derived from the new residual (1.4
-  times it: about 240 and 75). The owner decides; full-scale material is
-  not gated either way.
+* WARMTH is still not bit-exact, but now within a few LSB. Before the
+  warmth fix (above) GSSquared's `PhasorAudio::WarmthChannel` had no voice
+  latency, and with FF above $80 (two-pass samples arrive 293 clocks after
+  the tick) its residual reached 169 LSB (52.4 RMS), over the sample (128)
+  and window (40) gates in 35 of 177 cases at 502467e5. With the fix, the
+  five targeted cases above (three of those 35) pass at 5 LSB and 1.2 RMS at
+  worst. The full `--strict` run has not been repeated: it is what would
+  confirm the other 32. The gates themselves were not changed; they are
+  now 25 to 33 times the measured residual, so they could be tightened
+  (a suggestion for the owner, after a full run measures the residual
+  over every case: 1.4 times it would be about 8 LSB and 2 RMS; the
+  noise floor measured 0.5 where it was 3.0 on phmenu_01). The remaining
+  difference is the closed form's approximation of the truncation, and the
+  89 samples of syn_ff_reset where the RTL zeroes the voice at the reset's
+  own clock rather than a pipeline latency after a tick.
 * Coverage of CTLRUN, FCMUTE and Echo+. The fix ports CTLRUN (CTL=1 keeps
   the counters and core running) and FCMUTE (the noise-mix FC latched as 0
   while muted), but with the other causes modelled no case changes when

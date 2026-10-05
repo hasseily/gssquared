@@ -419,9 +419,29 @@ placement. The card mixer sums the active AY and SSI sources in floating point a
 this avoids source-order-dependent clipping. The saturated mix then passes
 through the same fixed +8 card-level warmth network used by Appletini: a
 warm-band boost, one-quarter treble subtraction, and a soft knee at 20480 PCM.
-The three FPGA-rate one-poles are collapsed to deterministic Q1.31 updates on
-the 48 kHz card timeline. Their state survives an Apple warm reset and is
-cleared by a cold/card reset.
+Appletini runs its three one-poles (truncating `>>> 16`, `14` and `13` on Q12
+states) on every 133.33 MHz fabric clock, 2777 or 2778 of them a sample as its
+48 kHz tick accumulator gives (`+1546188` a clock, the tick on the carry), and
+the new speech sample reaches them only when the SSI-263 backend has computed
+it: 9 fabric clocks after the tick for a sample with no tract pass, 151 with
+one and 293 with two (FILFREQ, below). GSSquared collapses each period into
+two closed-form steps per pole, so the cost per sample is constant: the
+previous input for those clocks plus 9 (the pipeline from the poles to the
+card output, read 3 clocks before the tick), then the new input for the rest
+of the period. Each socket reports the tract passes of the sample it returns
+(`SSI263::renderedSamplePasses`), and the mixer routes them with the speech
+(`PhasorLogic::mixAudioSample`) to the warmth stage of that channel; an AY
+sample in the same channel enters with it. The closed form also models the
+truncation: a pole does not move while its target is 0 to 2^s - 1 Q12 units
+above it (the dead band, up to 16 PCM LSB for the low pole), rises to the top
+of that band, falls onto the target, and loses half a step a clock to the
+floor on the way. Against the RTL's per-clock stage it stays within 4 LSB
+(at most 1.2 RMS a 10 ms window) on full-scale steps, noise, sweeps and
+low-level signal with any pass sequence, and within 5 LSB on speech with
+FILFREQ `$80`, `$E6`, `$F5` and `$FF` (tools/ssi263-harness README, "The
+warmth fix"). The filter state, the
+previous input and the tick phase survive an Apple warm reset and are cleared
+by a cold/card reset.
 
 The exact 48 kHz synthesis stream is independent of the host audio device
 clock. The SDL output starts behind a 50 ms safety prefill, targets a 60 ms

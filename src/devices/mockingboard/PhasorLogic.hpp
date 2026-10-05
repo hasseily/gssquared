@@ -223,6 +223,12 @@ constexpr uint8_t combineAyRead(bool primary_drove, uint8_t primary_data,
 struct StereoSample {
     float left;
     float right;
+    // The tract passes of the speech sample in each channel
+    // (SSI263::renderedSamplePasses), routed with the speech: they set when
+    // that sample reaches the card's warmth stage within the sample period
+    // (PhasorAudio::WarmthFilter::process).
+    uint8_t left_speech_passes;
+    uint8_t right_speech_passes;
 };
 
 constexpr float limitAudioSample(float sample) {
@@ -237,18 +243,22 @@ constexpr float limitAudioSample(float sample) {
 // The speech routing is Appletini's (mockingboard.sv final_audio_mix,
 // mix_speech): the A5 secondary socket goes to the left channel only and the
 // A6 primary socket to the right channel only, each at full level, in every
-// card mode.
+// card mode. Each socket's tract passes go with its speech.
 constexpr StereoSample mixAudioSample(float ay_primary_left,
                                       float ay_primary_right,
                                       float ay_secondary_left,
                                       float ay_secondary_right,
                                       float ssi_secondary,
-                                      float ssi_primary) {
+                                      float ssi_primary,
+                                      uint8_t ssi_secondary_passes,
+                                      uint8_t ssi_primary_passes) {
     return {
         limitAudioSample(ay_primary_left + ay_secondary_left +
                          ssi_secondary),
         limitAudioSample(ay_primary_right + ay_secondary_right +
                          ssi_primary),
+        ssi_secondary_passes,
+        ssi_primary_passes,
     };
 }
 

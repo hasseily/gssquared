@@ -23,7 +23,7 @@ uint64_t debug_level = 0;
 class GssCard : public Card {
 public:
     GssCard() {
-        // mb2.cpp:350-357
+        // mb2.cpp:362-369
         local_irq_ = std::make_unique<InterruptController>();
         local_irq_->register_irq_receiver([this](bool) { updateCardIrq(); });
         via_[0] = std::make_unique<N6522>("MB_6522 1 0x80", nullptr, local_irq_.get(), 4, 0);
@@ -76,23 +76,23 @@ private:
     bool mockingboardMode() const { return PhasorLogic::isMockingboard(mode_); }
     bool phasorNative() const { return PhasorLogic::isPhasorNative(mode_); }
 
-    // mb2.cpp:205-209
+    // mb2.cpp:209-213
     bool directSpeechIrq() const {
         if (!phasorNative()) return false;
         return (ssi_primary_.ready() && ssi_primary_.interruptsEnabled()) ||
                (ssi_secondary_.ready() && ssi_secondary_.interruptsEnabled());
     }
-    // mb2.cpp:211-217
+    // mb2.cpp:215-221
     void updateCardIrq() {
         card_irq_ = (local_irq_ && local_irq_->any_irq_asserted()) || directSpeechIrq();
     }
-    // mb2.cpp:219-224
+    // mb2.cpp:223-228
     void routeSpeechCompletion(SSI263 &ssi, uint8_t via) {
         if (ssi.takeCompletion() && mockingboardMode() && ssi.interruptsEnabled()) {
             via_[via]->signal_ca1_falling_edge();
         }
     }
-    // mb2.cpp:226-267 (AY generation omitted; the phase is the driver's)
+    // mb2.cpp:230-279 (AY generation omitted; the phase is the driver's)
     void clockDevices(bool due) {
         via_[PhasorLogic::kViaHigh]->incr_cycle();
         via_[PhasorLogic::kViaLow]->incr_cycle();
@@ -107,7 +107,9 @@ private:
 #endif
             s_.sec = toPcm(secondary);
             s_.pri = toPcm(primary);
-            // mb2.cpp:507-523 with both AY banks silent.
+            const uint8_t secondary_passes = ssi_secondary_.renderedSamplePasses();
+            const uint8_t primary_passes = ssi_primary_.renderedSamplePasses();
+            // mb2.cpp:522-542 with both AY banks silent.
 #ifdef EXP_MIX
             // Analysis only: the RTL's routing (mockingboard.sv:940-962,
             // mix_speech = sat_add16(PSG, speech)): the A5 secondary socket
@@ -115,12 +117,15 @@ private:
             // only, at full level. Then GSSquared's own warmth stage.
             const PhasorLogic::StereoSample mixed{
                 PhasorLogic::limitAudioSample(secondary),
-                PhasorLogic::limitAudioSample(primary)};
+                PhasorLogic::limitAudioSample(primary),
+                secondary_passes, primary_passes};
 #else
             const PhasorLogic::StereoSample mixed =
-                PhasorLogic::mixAudioSample(0.0f, 0.0f, 0.0f, 0.0f, secondary, primary);
+                PhasorLogic::mixAudioSample(0.0f, 0.0f, 0.0f, 0.0f, secondary, primary,
+                                            secondary_passes, primary_passes);
 #endif
-            const PhasorAudio::StereoSample shaped = warmth_.process(mixed.left, mixed.right);
+            const PhasorAudio::StereoSample shaped = warmth_.process(
+                mixed.left, mixed.right, mixed.left_speech_passes, mixed.right_speech_passes);
             s_.l = toPcm(shaped.left);
             s_.r = toPcm(shaped.right);
         }
@@ -136,7 +141,7 @@ private:
         if (v < -32768.0f) v = -32768.0f;
         return static_cast<int16_t>(v);
     }
-    // mb2.cpp:281-302 (AY clock rate and selections omitted)
+    // mb2.cpp:293-314 (AY clock rate and selections omitted)
     void modeSwitch(uint32_t addr) {
         const uint8_t next = PhasorLogic::updateModeLatch(mode_, static_cast<uint16_t>(addr));
         if (next == mode_) return;
@@ -151,7 +156,7 @@ private:
         }
         updateCardIrq();
     }
-    // mb2.cpp:425-446 (ayBusCycle omitted: it only feeds the AY and IRA)
+    // mb2.cpp:437-458 (ayBusCycle omitted: it only feeds the AY and IRA)
     void write(uint32_t addr, uint8_t data) {
         const uint8_t offset = addr & 0xFF;
         const uint8_t reg = offset & 0x0F;
@@ -167,7 +172,7 @@ private:
         if (sel.secondary) ssi_secondary_.write(ssi_reg, data);
         updateCardIrq();
     }
-    // mb2.cpp:269-279, 304-343 (the bus protocol only)
+    // mb2.cpp:281-291, 304-343 (the bus protocol only)
     void setAyClockRate() {
         const uint8_t multiplier = phasorNative() ? 2 : 1;
         ay_primary_->setClockMultiplier(multiplier);
@@ -197,7 +202,7 @@ private:
         ay_selected_[via] = route.next_selection;
     }
 
-    // mb2.cpp:448-474
+    // mb2.cpp:460-486
     uint8_t read(uint32_t addr, uint8_t floating_bus) {
         const uint8_t offset = addr & 0xFF;
         const PhasorLogic::SsiSocket status_socket = PhasorLogic::nativeStatusSocket(mode_, offset);
@@ -224,7 +229,7 @@ private:
         }
         return any_hit ? result : floating_bus;
     }
-    // mb2.cpp:551-572 (warm reset path; the cold one is the constructor)
+    // mb2.cpp:571-593 (warm reset path; the cold one is the constructor)
     void reset(bool cold_start) {
         mode_ = PhasorLogic::kModeMockingboard;
         ay_selected_[0] = ay_selected_[1] = {false, false};

@@ -80,6 +80,13 @@ public:
     // driven exclusively by clockXck().
     float renderSample();
 
+    // The tract passes (0, 1 or 2, from FILFREQ) of the sample the last
+    // renderSample() returned, the one computed from the previous tick. On
+    // Appletini that sample reaches the card mixer 9, 151 or 293 fabric
+    // clocks after that tick; the Phasor's warmth stage takes it with the
+    // sample (PhasorAudio::WarmthChannel).
+    uint8_t renderedSamplePasses() const;
+
     // Mix mono speech into an interleaved stereo Mockingboard frame.
     void mixSamples(std::vector<float> &stereo, uint32_t sample_count);
 

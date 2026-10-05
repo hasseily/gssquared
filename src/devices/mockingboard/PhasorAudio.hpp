@@ -83,34 +83,112 @@ private:
     float ratio_ = 1.0f;
 };
 
+namespace warmth {
+
+// Fabric clocks from one output read to the next during which the poles
+// still integrate the previous input, by the tract passes (0, 1 or 2) of
+// the new speech sample: the backend's 9/151/293-clock latency + 9.
+inline constexpr uint32_t kHeadClocks[3] = {18, 160, 302};
+inline constexpr uint32_t kShortPeriod = 2777;
+
+// (1 - 2^-shift)^clocks in Q1.31: a pole's decay over that many clocks.
+constexpr int32_t decayQ31(unsigned shift, uint32_t clocks) {
+    double base = 1.0 - 1.0 / static_cast<double>(uint64_t{1} << shift);
+    double result = 1.0;
+    while (clocks != 0) {
+        if (clocks & 1) result *= base;
+        base *= base;
+        clocks >>= 1;
+    }
+    return static_cast<int32_t>(result * 2147483648.0 + 0.5);
+}
+
+struct PoleDecay {
+    int32_t head[3];      // kHeadClocks[passes]
+    int32_t tail[3][2];   // the rest of a 2777- or 2778-clock period
+};
+
+constexpr PoleDecay poleDecay(unsigned shift) {
+    PoleDecay decay{};
+    for (unsigned passes = 0; passes < 3; ++passes) {
+        decay.head[passes] = decayQ31(shift, kHeadClocks[passes]);
+        for (unsigned tail = 0; tail < 2; ++tail) {
+            decay.tail[passes][tail] = decayQ31(
+                shift, kShortPeriod + tail - kHeadClocks[passes]);
+        }
+    }
+    return decay;
+}
+
+} // namespace warmth
+
 // Appletini's Phasor output uses a fixed +8 warmth setting after the completed
-// AY+speech card mix.  Its three one-poles run at 133.333 MHz; these Q1.31
-// injection coefficients analytically collapse the average 2777.778 FPGA
-// clocks between 48 kHz samples without changing the emulated sample rate.
-// Per-clock fixed-point rounding can differ from this collapsed form by a few
-// PCM LSBs; preserving the transfer in the sample domain avoids thousands of
-// host operations per output sample.
+// AY+speech card mix (appletini-one mockingboard.sv final_audio_mix).  Its
+// three one-poles (Q12 states, x += (target - x) >>> 16, 14 and 13) run on
+// every 133.333 MHz fabric clock, 2777 or 2778 of them between two 48 kHz
+// ticks.  Each sample period is collapsed here into two closed-form steps per
+// pole, so the cost per sample is constant:
+//
+//  1. The previous input, for the clocks before the new speech sample reaches
+//     the mixer.  The SSI-263 backend delivers a sample 9 fabric clocks after
+//     the tick with no tract pass, 151 with one and 293 with two
+//     (ssi263_formant_backend.sv, FILFREQ); the card output is read at
+//     tick - 3, from tone registers five stages behind it, and the poles see
+//     the mixer input one clock late, so the poles integrate the previous
+//     input for 9 more clocks than that latency from one output read to the
+//     next (kHeadClocks).
+//  2. The new input, for the rest of the period.
+//
+// The period alternates as the card's tick does (appletini_yarz_top.sv: a
+// 32-bit accumulator gaining 1546188 a clock, the tick on its carry).
+//
+// The poles truncate (>>> floors), which the closed form models as well: a
+// pole moves by floor(d / 2^s) a clock for a distance d to its target, so it
+// does not move at all for 0 <= d < 2^s (the dead band: 16 PCM LSB for the
+// low pole, 4 and 2 for the others), it decays toward the top of that band
+// while rising and onto the target while falling, and on the way the floor
+// loses half a step a clock on average.  The closed form decays linearly
+// toward d = 2^(s-1) and stops at those two limits; against the per-clock
+// stage it measured at most 5 PCM LSB (tools/ssi263-harness README, "The
+// warmth fix").
 // This is card coloration, not part of the SSI-263 synthesis backend.
 class WarmthChannel {
 public:
-    static constexpr int32_t kLowInjectionQ31 = 89120856;
-    static constexpr int32_t kWarmInjectionQ31 = 334906882;
-    static constexpr int32_t kMidInjectionQ31 = 617599807;
     static constexpr int32_t kWarmthKnee = 20480;
+
+    // The tick accumulator (appletini_yarz_top.sv).
+    static constexpr uint32_t kTickStep = 1546188;
+    // The accumulator after the tick before the first sample's, chosen so
+    // that the first sample's tick clears it to 0 as the card's power-on
+    // does: the period of every later sample is then the card's
+    // (1203220 + 2777 * 1546188 == 2^32).
+    static constexpr uint32_t kResetTickPhase = 1203220;
 
     void reset() {
         low_q12_ = 0;
         warm_q12_ = 0;
         mid_q12_ = 0;
+        previous_input_ = 0;
+        tick_phase_ = kResetTickPhase;
     }
 
-    int16_t processPcm(int16_t input) {
+    // One 48 kHz sample.  speech_passes: the tract passes (0, 1 or 2) of the
+    // SSI-263 sample in this input (SSI263::renderedSamplePasses()), which set
+    // when it reaches the mixer within the sample period.
+    int16_t processPcm(int16_t input, uint8_t speech_passes) {
+        const unsigned passes = speech_passes > 2 ? 2 : speech_passes;
+        const unsigned tail = nextPeriod() == kShortPeriod ? 0 : 1;
         // Multiplication is defined for negative PCM values; left-shifting a
         // negative signed integer is undefined in C++.
+        const int64_t previous = static_cast<int64_t>(previous_input_) * 4096;
         const int64_t target = static_cast<int64_t>(input) * 4096;
-        low_q12_ = updatePole(low_q12_, target, kLowInjectionQ31);
-        warm_q12_ = updatePole(warm_q12_, target, kWarmInjectionQ31);
-        mid_q12_ = updatePole(mid_q12_, target, kMidInjectionQ31);
+        low_q12_ = advancePole<16>(low_q12_, previous, kLowDecay.head[passes]);
+        low_q12_ = advancePole<16>(low_q12_, target, kLowDecay.tail[passes][tail]);
+        warm_q12_ = advancePole<14>(warm_q12_, previous, kWarmDecay.head[passes]);
+        warm_q12_ = advancePole<14>(warm_q12_, target, kWarmDecay.tail[passes][tail]);
+        mid_q12_ = advancePole<13>(mid_q12_, previous, kMidDecay.head[passes]);
+        mid_q12_ = advancePole<13>(mid_q12_, target, kMidDecay.tail[passes][tail]);
+        previous_input_ = input;
 
         const int32_t low = static_cast<int32_t>(floorDivPow2(low_q12_, 12));
         const int32_t warm = static_cast<int32_t>(floorDivPow2(warm_q12_, 12));
@@ -126,8 +204,9 @@ public:
         return saturatePcm(applyWarmthKnee(shaped));
     }
 
-    float process(float input) {
-        return static_cast<float>(processPcm(quantizePcm(input))) / 32768.0f;
+    float process(float input, uint8_t speech_passes) {
+        return static_cast<float>(
+            processPcm(quantizePcm(input), speech_passes)) / 32768.0f;
     }
 
     static int16_t quantizePcm(float input) {
@@ -165,16 +244,43 @@ private:
                (sample < -32768 ? -32768 : static_cast<int16_t>(sample));
     }
 
-    static int32_t updatePole(int32_t state, int64_t target,
-                              int32_t injection_q31) {
-        const int64_t delta = target - static_cast<int64_t>(state);
-        return static_cast<int32_t>(static_cast<int64_t>(state) +
-            floorDivPow2(delta * injection_q31, 31));
+    static constexpr uint32_t kShortPeriod = warmth::kShortPeriod;
+    using PoleDecay = warmth::PoleDecay;
+    static constexpr PoleDecay kLowDecay = warmth::poleDecay(16);
+    static constexpr PoleDecay kWarmDecay = warmth::poleDecay(14);
+    static constexpr PoleDecay kMidDecay = warmth::poleDecay(13);
+
+    // Fabric clocks to the next tick: 2777 or 2778.
+    uint32_t nextPeriod() {
+        const uint32_t to_carry = ~tick_phase_;            // 2^32 - 1 - phase
+        const uint32_t period = to_carry / kTickStep + 1;  // first n with carry
+        tick_phase_ += period * kTickStep;                 // wraps past 2^32
+        return period;
+    }
+
+    // The truncating one-pole x += (target - x) >>> shift, over the clocks
+    // whose decay is decay_q31, in closed form (see the class comment).
+    template <unsigned shift>
+    static int32_t advancePole(int32_t state, int64_t target,
+                               int32_t decay_q31) {
+        constexpr int64_t band = int64_t{1} << shift;
+        const int64_t distance = target - static_cast<int64_t>(state);
+        if (distance >= 0 && distance < band) return state;
+        int64_t left = band / 2 +
+            floorDivPow2((distance - band / 2) * decay_q31, 31);
+        if (distance >= band) {
+            if (left < band - 1) left = band - 1;
+        } else if (left > 0) {
+            left = 0;
+        }
+        return static_cast<int32_t>(target - left);
     }
 
     int32_t low_q12_ = 0;
     int32_t warm_q12_ = 0;
     int32_t mid_q12_ = 0;
+    int16_t previous_input_ = 0;
+    uint32_t tick_phase_ = kResetTickPhase;
 };
 
 struct StereoSample {
@@ -189,8 +295,12 @@ public:
         right_.reset();
     }
 
-    StereoSample process(float left, float right) {
-        return {left_.process(left), right_.process(right)};
+    // left_passes and right_passes: the tract passes of the speech sample
+    // in each channel (PhasorLogic::mixAudioSample routes them).
+    StereoSample process(float left, float right, uint8_t left_passes,
+                         uint8_t right_passes) {
+        return {left_.process(left, left_passes),
+                right_.process(right, right_passes)};
     }
 
 private:

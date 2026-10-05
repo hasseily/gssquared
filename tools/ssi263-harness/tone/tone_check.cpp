@@ -17,6 +17,8 @@
 //   --model-out FILE / --gss-out FILE write those outputs (stereo int16).
 //   --passes FILE: per-sample tract passes, for the per-sample voice latency
 //       FILFREQ gives (see latencyFor); without it D is fixed (FF=$80).
+//       WarmthChannel takes the same passes, as GSSquared's mixer hands
+//       them over (passesFor); without the file, one pass a sample.
 #include "schedule.hpp"
 #include "devices/mockingboard/PhasorAudio.hpp"
 
@@ -80,12 +82,21 @@ static std::vector<int16_t> runModel(const std::vector<int16_t> &in, size_t ns, 
     return out;
 }
 
+// WarmthChannel takes each sample's passes as GSSquared's mixer hands them
+// over (SSI263::renderedSamplePasses: the passes of the sample it returned,
+// the one started at the previous tick): the same per-sample latency the
+// model has. Without --passes every sample has one pass (FF=$80, D=151).
+static uint8_t passesFor(size_t k, int ch) {
+    if (g_passes.empty()) return 1;
+    if (k == 0 || 2 * (k - 1) + ch >= g_passes.size()) return 0;
+    return g_passes[2 * (k - 1) + ch];
+}
 static std::vector<int16_t> runGss(const std::vector<int16_t> &in, size_t ns) {
     PhasorAudio::WarmthChannel L, R;
     std::vector<int16_t> out(2 * ns);
     for (size_t k = 0; k < ns; ++k) {
-        out[2 * k] = L.processPcm(in[2 * k]);
-        out[2 * k + 1] = R.processPcm(in[2 * k + 1]);
+        out[2 * k] = L.processPcm(in[2 * k], passesFor(k, 0));
+        out[2 * k + 1] = R.processPcm(in[2 * k + 1], passesFor(k, 1));
     }
     return out;
 }

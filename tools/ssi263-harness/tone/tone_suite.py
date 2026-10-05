@@ -16,7 +16,13 @@ per-sample passes come from bin/card_gss_dbg (./build.sh dbg).
 2. Synthetic inputs (steps up to full scale, so the warmth knee and the
    output saturation are reached; full-scale noise; sine sweeps) through
    the RTL block itself (bin/tone_rtl: mockingboard.sv's final_audio_mix
-   under Verilator), the model and WarmthChannel.
+   under Verilator), the model and WarmthChannel, one tract pass a sample.
+3. The same inputs and two more (short holds between the rails, low-level
+   signal in the poles' dead bands) with per-sample passes: random 0/1/2
+   and the FILFREQ phase sequences of $00, $E6, $F5 and $FF, through the
+   model and WarmthChannel (tone_rtl has no per-sample latency; the model
+   is the RTL, part 1). Prints WarmthChannel's worst error against the
+   model per input.
 Prints a line per case and the totals; exit 1 if the model ever differs
 from the RTL.
 """
@@ -99,6 +105,32 @@ def synth():
     return [(label, np.concatenate([z, x])) for label, x in parts]
 
 
+def synth_passes():
+    """Part 3's extra inputs, and the pass sequences (one byte per sample
+    and channel, tone_check --passes) for a signal of n samples."""
+    sr = 48000
+    rng = np.random.default_rng(11)
+    seq = []
+    for _ in range(400):
+        seq += [int(rng.choice([32767, -32768, 0, 15000, -15000, 50, -50]))] * int(rng.integers(1, 40))
+    seq = np.array(seq, dtype=np.int64)
+    ramp = np.round(np.concatenate([np.linspace(0, 200, sr // 4), np.linspace(200, -200, sr // 4)])).astype(np.int64)
+    z = np.zeros((sr // 100, 2), dtype=np.int64)
+    extra = [('holds', np.concatenate([z, np.stack([seq, -seq], axis=1)])),
+             ('low', np.concatenate([z, np.stack([ramp, rng.integers(-40, 41, len(ramp))], axis=1)]))]
+
+    def patterns(n):
+        out = {'random': rng.integers(0, 3, 2 * n).astype(np.uint8)}
+        for ff in (0x00, 0xE6, 0xF5, 0xFF):
+            phase, ps = 0, np.empty(n, np.uint8)
+            for k in range(n):
+                s = phase + 128 + ff
+                phase, ps[k] = s & 0xFF, s >> 8
+            out[f'FF={ff:02X}'] = np.repeat(ps, 2)
+        return out
+    return extra, patterns
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('--jobs', type=int, default=6)
@@ -162,6 +194,30 @@ def main():
                     print(f"  {label:6s} {'LR'[c]}: RTL block vs model {md} of {len(R)} differ; WarmthChannel vs RTL "
                           f"max {int(np.max(np.abs(e)))} @{int(np.argmax(np.abs(e)))}, {int(np.count_nonzero(e))} differ, "
                           f"SNR {snr:.1f} dB; RTL peak {int(np.max(np.abs(R[:, c])))}")
+            print('\nper-sample passes (WarmthChannel vs the model, worst over both channels):')
+            extra, patterns = synth_passes()
+            pass_line = re.compile(r'^[LR] gss-vs-model \d+/\d+ diff max (\d+) @\d+ win-rms ([\d.]+)')
+
+            def run_passes(job):
+                label, inp, key, pfile = job
+                r = subprocess.run([str(paths.BIN / 'tone_check'), '--in', str(inp), '--clock', args.clock,
+                                    '--passes', str(pfile)], capture_output=True, text=True, check=True)
+                got = [pass_line.match(l) for l in r.stdout.splitlines()]
+                return label, key, max(int(m.group(1)) for m in got if m), max(float(m.group(2)) for m in got if m)
+            jobs = []
+            for label, x in synth() + extra:
+                inp = TMP / f'{label}_in.pcm'
+                x.astype('<i2').tofile(inp)
+                for key, p in patterns(len(x)).items():
+                    pfile = TMP / f"{label}_{key.replace('=', '')}.passes"
+                    p.tofile(pfile)
+                    jobs.append((label, inp, key, pfile))
+            results = {}
+            with cf.ThreadPoolExecutor(max_workers=args.jobs) as ex:
+                for label, key, mx, win in ex.map(run_passes, jobs):
+                    results.setdefault(label, []).append((key, mx, win))
+            for label, rows in results.items():
+                print(f"  {label:6s} " + '  '.join(f'{k}: max {m} win {w:.1f}' for k, m, w in rows))
         finally:
             for p in TMP.glob('*'):
                 p.unlink()

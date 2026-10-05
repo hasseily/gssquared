@@ -2,6 +2,7 @@
 #include <cstdint>
 #include <cmath>
 #include <cstdio>
+#include <cstdlib>
 #include <vector>
 
 #include "devices/mockingboard/PhasorAudio.hpp"
@@ -356,12 +357,13 @@ void testOutputClockRecovery() {
 
 template <size_t N>
 void expectWarmthVector(const std::array<int16_t, N> &input,
+                        uint8_t speech_passes,
                         const std::array<int16_t, N> &expected,
                         const char *description) {
     PhasorAudio::WarmthChannel warmth;
     bool matches = true;
     for (size_t i = 0; i < N; ++i) {
-        const int16_t actual = warmth.processPcm(input[i]);
+        const int16_t actual = warmth.processPcm(input[i], speech_passes);
         if (actual != expected[i]) {
             std::fprintf(stderr,
                 "FAIL: %s at sample %zu (actual=%d expected=%d)\n",
@@ -373,39 +375,138 @@ void expectWarmthVector(const std::array<int16_t, N> &input,
     if (!matches) ++failures;
 }
 
+// The tone stage clock by clock, as appletini-one mockingboard.sv
+// final_audio_mix runs it with warmth +8 and the other controls at 0: three
+// truncating one-poles (x += (target - x) >>> 16, 14, 13 on Q12 states) on
+// every fabric clock, the input reaching the poles kHeadClocks[passes]
+// clocks into each period, the 2777/2778-clock period from the card's tick
+// accumulator. tools/ssi263-harness/tone checks this timing against the RTL
+// itself; here it checks WarmthChannel's closed form against the clocks.
+class PerClockWarmth {
+public:
+    int16_t processPcm(int16_t input, uint8_t passes) {
+        // The tick is the accumulator's carry.
+        uint32_t period = 0;
+        for (;;) {
+            ++period;
+            acc_ += 1546188;
+            if (acc_ >= (uint64_t{1} << 32)) {
+                acc_ -= uint64_t{1} << 32;
+                break;
+            }
+        }
+        const uint32_t head = PhasorAudio::warmth::kHeadClocks[passes];
+        for (uint32_t clock = 0; clock < period; ++clock) {
+            const int64_t target =
+                int64_t{clock < head ? previous_ : input} * 4096;
+            low_ += asr(target - low_, 16);
+            warm_ += asr(target - warm_, 14);
+            mid_ += asr(target - mid_, 13);
+        }
+        previous_ = input;
+        const int32_t low = static_cast<int32_t>(asr(low_, 12));
+        const int32_t warm_band = sat16(static_cast<int32_t>(asr(warm_, 12)) - low);
+        const int32_t treble_band =
+            sat16(input - static_cast<int32_t>(asr(mid_, 12)));
+        const int32_t shaped = input + warm_band -
+            static_cast<int32_t>(asr(treble_band, 2));
+        return static_cast<int16_t>(sat16(
+            PhasorAudio::WarmthChannel::applyWarmthKnee(shaped)));
+    }
+
+private:
+    static int64_t asr(int64_t value, unsigned shift) {
+        return value >= 0 ? value >> shift
+                          : -((-value + ((int64_t{1} << shift) - 1)) >> shift);
+    }
+    static int32_t sat16(int32_t v) {
+        return v > 32767 ? 32767 : (v < -32768 ? -32768 : v);
+    }
+
+    uint64_t acc_ = PhasorAudio::WarmthChannel::kResetTickPhase;
+    int64_t low_ = 0, warm_ = 0, mid_ = 0;
+    int16_t previous_ = 0;
+};
+
 void testAppletiniWarmth() {
-    // Exact Q1.31 golden vectors for the 48 kHz collapse of Appletini's
-    // forced +8 card-output network. These lock the source-derived poles and
-    // arithmetic-shift behavior so they cannot become subjective EQ knobs.
+    // Exact golden vectors of the closed form with every speech sample
+    // reaching the mixer after one tract pass (FILFREQ $80) and after two.
+    // They lock the poles, the per-pass delay, the period alternation and
+    // the arithmetic-shift behavior so none can become a subjective EQ knob.
     constexpr std::array<int16_t, 16> impulse = {
         8192, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
     };
     constexpr std::array<int16_t, 16> impulse_expected = {
-        7671, 1173, 897, 682, 514, 380, 275, 192,
-        126, 73, 32, -2, -27, -48, -64, -76,
+        7593, 1191, 911, 693, 522, 388, 281, 198,
+        130, 77, 35, 2, -25, -45, -61, -73,
     };
     constexpr std::array<int16_t, 16> step = {
         8192, 8192, 8192, 8192, 8192, 8192, 8192, 8192,
         8192, 8192, 8192, 8192, 8192, 8192, 8192, 8192,
     };
     constexpr std::array<int16_t, 16> step_expected = {
-        7671, 8843, 9740, 10422, 10934, 11315, 11590, 11782,
-        11907, 11981, 12014, 12013, 11985, 11937, 11873, 11797,
+        7593, 8783, 9694, 10387, 10910, 11296, 11577, 11773,
+        11903, 11980, 12013, 12014, 11989, 11942, 11879, 11804,
+    };
+    constexpr std::array<int16_t, 16> step_two_passes_expected = {
+        7523, 8730, 9654, 10356, 10886, 11279, 11565, 11766,
+        11899, 11977, 12013, 12015, 11990, 11946, 11883, 11808,
     };
     constexpr std::array<int16_t, 16> alternating = {
         12000, -12000, 12000, -12000, 12000, -12000, 12000, -12000,
         12000, -12000, 12000, -12000, 12000, -12000, 12000, -12000,
     };
     constexpr std::array<int16_t, 16> alternating_expected = {
-        11236, -9519, 10833, -9834, 10587, -10028, 10432, -10150,
-        10336, -10228, 10275, -10276, 10236, -10306, 10213, -10323,
+        11123, -9380, 10714, -9699, 10463, -9895, 10308, -10018,
+        10210, -10096, 10148, -10146, 10111, -10175, 10085, -10194,
     };
-    expectWarmthVector(impulse, impulse_expected,
+    expectWarmthVector(impulse, 1, impulse_expected,
                        "Appletini warmth impulse vector");
-    expectWarmthVector(step, step_expected,
+    expectWarmthVector(step, 1, step_expected,
                        "Appletini warmth step vector");
-    expectWarmthVector(alternating, alternating_expected,
+    expectWarmthVector(step, 2, step_two_passes_expected,
+                       "Appletini warmth step vector, two tract passes");
+    expectWarmthVector(alternating, 1, alternating_expected,
                        "Appletini warmth alternating vector");
+
+    // Against the clock-by-clock stage: steps to both rails held for a
+    // random number of samples, full-scale noise and low-level signal in
+    // the dead bands, with random tract passes. The closed form stays
+    // within a few LSB (tools/ssi263-harness README, "The tone stage").
+    {
+        PhasorAudio::WarmthChannel closed_form;
+        PerClockWarmth per_clock;
+        uint32_t lcg = 12345;
+        auto next = [&lcg]() {
+            lcg = lcg * 1664525u + 1013904223u;
+            return lcg >> 8;
+        };
+        int worst = 0;
+        int16_t level = 0;
+        for (int i = 0; i < 6000; ++i) {
+            int16_t input;
+            if (i < 2000) {
+                if (next() % 12 == 0) {
+                    static constexpr int16_t kLevels[] = {
+                        32767, -32768, 0, 15000, -15000, 40, -40};
+                    level = kLevels[next() % 7];
+                }
+                input = level;
+            } else if (i < 4000) {
+                input = static_cast<int16_t>(
+                    static_cast<int32_t>(next() & 0xFFFF) - 32768);
+            } else {
+                input = static_cast<int16_t>(
+                    static_cast<int32_t>(next() % 161) - 80);
+            }
+            const uint8_t passes = static_cast<uint8_t>(next() % 3);
+            const int error = std::abs(closed_form.processPcm(input, passes) -
+                                       per_clock.processPcm(input, passes));
+            if (error > worst) worst = error;
+        }
+        expect(worst <= 4,
+               "warmth closed form within 4 LSB of the per-clock tone stage");
+    }
 
     constexpr std::array<int32_t, 10> knee_input = {
         -32768, -30000, -20488, -20481, -20480,
@@ -426,7 +527,8 @@ void testAppletiniWarmth() {
     expect(knee_matches, "Appletini warmth soft-knee vector");
 
     PhasorAudio::WarmthFilter stereo;
-    const PhasorAudio::StereoSample centered = stereo.process(0.25f, 0.25f);
+    const PhasorAudio::StereoSample centered =
+        stereo.process(0.25f, 0.25f, 1, 1);
     expect(centered.left == centered.right &&
                PhasorAudio::WarmthChannel::quantizePcm(centered.left) ==
                    impulse_expected[0],
@@ -434,20 +536,29 @@ void testAppletiniWarmth() {
 
     PhasorAudio::WarmthFilter independent_stereo;
     const PhasorAudio::StereoSample split =
-        independent_stereo.process(0.25f, 0.0f);
+        independent_stereo.process(0.25f, 0.0f, 1, 1);
     const PhasorAudio::StereoSample split_tail =
-        independent_stereo.process(0.0f, 0.0f);
+        independent_stereo.process(0.0f, 0.0f, 1, 1);
     expect(PhasorAudio::WarmthChannel::quantizePcm(split.left) ==
                impulse_expected[0] && split.right == 0.0f &&
                PhasorAudio::WarmthChannel::quantizePcm(split_tail.left) ==
                    impulse_expected[1] && split_tail.right == 0.0f,
            "warmth keeps independent left and right filter histories");
 
+    PhasorAudio::WarmthFilter per_channel_passes;
+    const PhasorAudio::StereoSample passes_split =
+        per_channel_passes.process(0.25f, 0.25f, 1, 2);
+    expect(PhasorAudio::WarmthChannel::quantizePcm(passes_split.left) ==
+               step_expected[0] &&
+               PhasorAudio::WarmthChannel::quantizePcm(passes_split.right) ==
+                   step_two_passes_expected[0],
+           "warmth takes each channel's speech at its own tract passes");
+
     PhasorAudio::WarmthChannel reset_probe;
-    const int16_t first = reset_probe.processPcm(8192);
-    const int16_t continued = reset_probe.processPcm(8192);
+    const int16_t first = reset_probe.processPcm(8192, 1);
+    const int16_t continued = reset_probe.processPcm(8192, 1);
     reset_probe.reset();
-    const int16_t restarted = reset_probe.processPcm(8192);
+    const int16_t restarted = reset_probe.processPcm(8192, 1);
     expect(first == impulse_expected[0] && continued == step_expected[1] &&
                restarted == first,
            "cold reset clears warmth state while uninterrupted audio preserves it");
@@ -656,25 +767,31 @@ void testAudioMixer() {
     // Appletini (mockingboard.sv mix_speech): the A6 primary socket goes to
     // the right channel only and the A5 secondary to the left only, at unity.
     const PL::StereoSample primary =
-        PL::mixAudioSample(0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.5f);
+        PL::mixAudioSample(0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.5f, 0, 2);
     expect(primary.left == 0.0f && std::fabs(primary.right - 0.5f) < epsilon,
            "primary SSI goes to the right channel only, at unity");
+    expect(primary.left_speech_passes == 0 &&
+               primary.right_speech_passes == 2,
+           "primary SSI's tract passes go with it to the right channel");
 
     const PL::StereoSample secondary =
-        PL::mixAudioSample(0.0f, 0.0f, 0.0f, 0.0f, 0.5f, 0.0f);
+        PL::mixAudioSample(0.0f, 0.0f, 0.0f, 0.0f, 0.5f, 0.0f, 2, 1);
     expect(std::fabs(secondary.left - 0.5f) < epsilon && secondary.right == 0.0f,
            "secondary SSI goes to the left channel only, at unity");
+    expect(secondary.left_speech_passes == 2 &&
+               secondary.right_speech_passes == 1,
+           "secondary SSI's tract passes go with it to the left channel");
 
     // 0.6 + 0.6 - 0.6 = 0.6. An intermediate clamp after the two AY banks
     // would instead produce 0.4, exposing source-order bias.
     const PL::StereoSample cancellation =
-        PL::mixAudioSample(0.6f, 0.6f, 0.6f, 0.6f, -0.6f, -0.6f);
+        PL::mixAudioSample(0.6f, 0.6f, 0.6f, 0.6f, -0.6f, -0.6f, 1, 1);
     expect(std::fabs(cancellation.left - 0.6f) < epsilon &&
                std::fabs(cancellation.right - 0.6f) < epsilon,
            "AY and SSI sources sum before the single final limiter");
 
     const PL::StereoSample limited =
-        PL::mixAudioSample(0.8f, -0.8f, 0.8f, -0.8f, 1.0f, 1.0f);
+        PL::mixAudioSample(0.8f, -0.8f, 0.8f, -0.8f, 1.0f, 1.0f, 1, 1);
     expect(limited.left == 1.0f && std::fabs(limited.right + 0.6f) < epsilon,
            "completed card mix is limited once at the output");
 }

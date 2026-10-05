@@ -741,6 +741,8 @@ public:
         resetHistory();
         output_ = 0;
         visible_output_ = 0;
+        output_passes_ = 0;
+        visible_passes_ = 0;
     }
 
     // FILFREQ sets the switched-capacitor tract clock (appletini-one
@@ -774,6 +776,7 @@ public:
         // histories are masked and the pipeline is idle again.
         if (last_passes_ != 0 && xck_since_sample <= last_passes_) {
             output_ = visible_output_;
+            output_passes_ = visible_passes_;
         }
         resetHistory();
     }
@@ -787,6 +790,7 @@ public:
         // synthesized value a tick early.
         const int16_t visible_output = output_;
         visible_output_ = visible_output;
+        visible_passes_ = output_passes_;
         static constexpr std::array<int16_t, 9> glottal = {
             0, -4681, 8192, 7022, 5851, 4681, 3511, 2340, 1170,
         };
@@ -887,8 +891,16 @@ public:
             static_cast<int64_t>(output_scaled) << 1);
         const int16_t target = softLimit16(output_gain);
         output_ = slewLimit16(output_, target);
+        output_passes_ = passes;
         return static_cast<float>(visible_output) / 32768.0f;
     }
+
+    // The tract passes of the sample render() last returned (the one
+    // computed at the previous tick): Appletini's backend delivers it to
+    // the card mixer 9, 151 or 293 fabric clocks after that tick for 0, 1
+    // or 2 passes, which the card's warmth stage sees
+    // (PhasorAudio::WarmthChannel).
+    uint8_t visiblePasses() const { return visible_passes_; }
 
 private:
     static int32_t scale4(int32_t sample, uint8_t gain) {
@@ -1043,6 +1055,11 @@ private:
     int32_t presence_low_ = 0;
     int16_t output_ = 0;
     int16_t visible_output_ = 0;
+    // The tract passes output_ and visible_output_ were computed with. A
+    // phone start that idles the pipeline (resetHistory) does not change
+    // them: the sample already computed still reaches the mixer when it did.
+    uint8_t output_passes_ = 0;
+    uint8_t visible_passes_ = 0;
     // The tract-rate scheduler (filter_phase_q) and the tract passes of the
     // sample last scheduled (0 once a phone start has idled the pipeline).
     uint8_t filter_phase_ = 0;
@@ -1382,6 +1399,10 @@ bool SSI263::takeCompletion() {
 
 float SSI263::renderSample() {
     return impl_->generateSample();
+}
+
+uint8_t SSI263::renderedSamplePasses() const {
+    return impl_->synth.visiblePasses();
 }
 
 void SSI263::mixSamples(std::vector<float> &stereo, uint32_t sample_count) {

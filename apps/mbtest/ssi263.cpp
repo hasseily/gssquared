@@ -921,6 +921,55 @@ int main() {
         return 1;
     }
 
+    // renderedSamplePasses reports the tract passes of the sample each
+    // renderSample returns: the one computed at the previous tick, so the
+    // FILFREQ phase sequence one sample late (0 after a reset). The Phasor's
+    // warmth stage takes the sample when those passes deliver it.
+    for (const uint8_t filter : {0x00, 0x80, 0xE6, 0xFF}) {
+        SSI263 passes_speech;
+        configureSpeech(passes_speech, 0x08, 0xC0, 0xA8, 0x7F, filter);
+        uint64_t passes_phase = 0;
+        uint16_t filter_phase = 0;
+        uint8_t computed = 0;
+        bool matches = true;
+        for (uint32_t i = 0; i < 64; ++i) {
+            (void)passes_speech.renderSample();
+            matches = matches && passes_speech.renderedSamplePasses() == computed;
+            if (filter == 0x80) {
+                computed = 1;
+            } else {
+                const uint16_t sum = static_cast<uint16_t>(filter_phase + 128 + filter);
+                filter_phase = sum & 0xFF;
+                computed = static_cast<uint8_t>(sum >> 8);
+            }
+            advanceXckForSamples(passes_speech, 1, passes_phase);
+        }
+        if (!matches) {
+            std::fprintf(stderr,
+                "SSI-263 FILFREQ %02X: renderedSamplePasses is not the "
+                "previous sample's tract passes\n", filter);
+            return 1;
+        }
+    }
+    // A phone start after the sample's pipeline has finished idles the
+    // pipeline but does not change when that sample reaches the mixer.
+    {
+        SSI263 restart_speech;
+        configureSpeech(restart_speech, 0x08, 0xC0, 0xA8, 0x7F, 0x80);
+        uint64_t restart_phase = 0;
+        for (uint32_t i = 0; i < 8; ++i) {
+            (void)restart_speech.renderSample();
+            advanceXckForSamples(restart_speech, 1, restart_phase);
+        }
+        restart_speech.write(0, 0x08);
+        (void)restart_speech.renderSample();
+        if (restart_speech.renderedSamplePasses() != 1) {
+            std::fprintf(stderr,
+                "SSI-263 phone start dropped the computed sample's tract passes\n");
+            return 1;
+        }
+    }
+
     // The synthesizer must retain exact state across host audio chunk
     // boundaries. Render the same phone as one buffer and as irregular chunks.
     SSI263 contiguous_speech;

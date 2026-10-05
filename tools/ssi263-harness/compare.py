@@ -325,10 +325,12 @@ def match_events(er, eg):
     return out
 
 
-# GSSquared's warmth stage in its linear form (PhasorAudio.hpp WarmthChannel,
-# without rounding and the knee): the model through which the socket gains
-# into each card channel are estimated. Both sides are measured with the same
-# model, so it only has to be close, not exact.
+# The warmth stage in a linear form (one step a sample, the poles' decay over
+# the mean period of 2^32/1546188 fabric clocks: 1 - (1 - 2^-s)^2777.78 in
+# Q1.31 for s = 16, 14, 13; no truncation, voice latency or knee): the model
+# through which the socket gains into each card channel are estimated. Both
+# sides are measured with the same model, so it only has to be close, not
+# exact.
 _WARM_K = (89120856 / 2.0 ** 31, 334906882 / 2.0 ** 31, 617599807 / 2.0 ** 31)
 
 

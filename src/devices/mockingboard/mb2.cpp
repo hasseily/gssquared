@@ -138,6 +138,10 @@ private:
     std::vector<float> audio_buffer;
     std::vector<float> secondary_audio_buffer;
     std::vector<float> speech_audio_buffer;
+    // Each speech sample's tract passes (SSI263::renderedSamplePasses),
+    // index for index with speech_audio_buffer: the warmth stage takes the
+    // sample when the passes put it into the mixer.
+    std::vector<uint8_t> speech_passes_buffer;
     uint64_t speech_sample_phase = 0;
     size_t max_speech_values_per_frame = 0;
     PhasorAudio::WarmthFilter warmth_filter;
@@ -248,12 +252,20 @@ private:
                     speech_audio_buffer.begin(),
                     speech_audio_buffer.begin() +
                         max_speech_values_per_frame);
+                speech_passes_buffer.erase(
+                    speech_passes_buffer.begin(),
+                    speech_passes_buffer.begin() +
+                        max_speech_values_per_frame);
             }
             // Retain the two mono socket signals independently. The card
             // mixer routes them after the AY banks have rendered: the
             // secondary to the left channel, the primary to the right.
             speech_audio_buffer.push_back(secondary);
             speech_audio_buffer.push_back(primary);
+            speech_passes_buffer.push_back(
+                ssi_secondary.renderedSamplePasses());
+            speech_passes_buffer.push_back(
+                ssi_primary.renderedSamplePasses());
         }
 
         // NClock's video-cycle callback is the effective SSI XCK cadence
@@ -481,6 +493,9 @@ public:
             speech_audio_buffer.erase(
                 speech_audio_buffer.begin(),
                 speech_audio_buffer.end() - max_speech_values_per_frame);
+            speech_passes_buffer.erase(
+                speech_passes_buffer.begin(),
+                speech_passes_buffer.end() - max_speech_values_per_frame);
         }
 
         // Use the exact count produced by the shared cycle-to-sample phase.
@@ -504,7 +519,8 @@ public:
         // into the right, as Appletini does, preserving the AY
         // banks' existing stereo topology. Do one final saturation only after
         // every card source has contributed, then apply Appletini's fixed +8
-        // card-level warmth network on the exact 48 kHz emulated timeline.
+        // card-level warmth network on the exact 48 kHz emulated timeline,
+        // each speech sample entering it when its tract passes deliver it.
         const bool secondary_ay_audible = phasorNative() || echoPlus();
         const size_t value_count = std::min(
             audio_buffer.size(),
@@ -516,13 +532,17 @@ public:
                     audio_buffer[i], audio_buffer[i + 1],
                     secondary_ay_audible ? secondary_audio_buffer[i] : 0.0f,
                     secondary_ay_audible ? secondary_audio_buffer[i + 1] : 0.0f,
-                    speech_audio_buffer[i], speech_audio_buffer[i + 1]);
+                    speech_audio_buffer[i], speech_audio_buffer[i + 1],
+                    speech_passes_buffer[i], speech_passes_buffer[i + 1]);
             const PhasorAudio::StereoSample shaped =
-                warmth_filter.process(mixed.left, mixed.right);
+                warmth_filter.process(mixed.left, mixed.right,
+                                      mixed.left_speech_passes,
+                                      mixed.right_speech_passes);
             audio_buffer[i] = shaped.left;
             audio_buffer[i + 1] = shaped.right;
         }
         speech_audio_buffer.clear();
+        speech_passes_buffer.clear();
     
         // Clear the audio buffer after each frame to prevent memory buildup
         // Send the generated audio data to the SDL audio stream
@@ -561,6 +581,7 @@ public:
         ssi_secondary.reset(cold_start);
         if (cold_start) {
             speech_audio_buffer.clear();
+            speech_passes_buffer.clear();
             speech_sample_phase = vid_cycles_rate - OUTPUT_SAMPLE_RATE_INT;
             warmth_filter.reset();
         }
