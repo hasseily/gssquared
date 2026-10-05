@@ -502,6 +502,11 @@ struct FormantCore {
 
     bool filter_dirty = true;
     bool phone_done = false;
+    // The frame count the consonant-attack stage sees: the backend reads the
+    // live frame counter late in its pipeline (SYNTH_ATTACK_BOOST), after an
+    // XCK edge that follows the audio tick, so a frame boundary on that edge
+    // already counts (ssi263_formant_backend.sv:1521-1532, ticks_q).
+    uint8_t attack_ticks = 0;
 
     uint8_t noiseStopBurstGain() const {
         if (ticks <= phone.voice_delay) {
@@ -547,7 +552,22 @@ struct FormantCore {
         const uint16_t retained_inflection = active_inflection;
         const bool retained_seed = transitioned_inflection_seeded;
         *this = FormantCore{};
+        // sc01a_digital_core.sv reset_state: the ROM latches reset to these
+        // targets, and the core (which has no enable) interpolates toward
+        // them from power-on until the first phone.
         phone = decodePhone(0x3F);
+        phone.f1 = 0x7;
+        phone.f2 = 0x9;
+        phone.f2q = 0x4;
+        phone.f3 = 0xC;
+        phone.fa = 0;
+        phone.fc = 0;
+        phone.va = 0;
+        phone.closure_delay = 1;
+        phone.voice_delay = 1;
+        phone.duration = 0x0F;
+        phone.closure = true;
+        phone.pause = false;
         if (!cold_start) {
             active_inflection = retained_inflection;
             transitioned_inflection_seeded = retained_seed;
@@ -687,8 +707,10 @@ struct FormantCore {
         }
         control_accumulator -= SSI263::kSampleRate;
 
-        advanceInflection(current_function, registers);
+        // sc01a_digital_core.sv:713-714: pitch_limit_q is a non-blocking
+        // assignment, so it takes the inflection from before this update.
         pitch_limit = pitchPeriod(active_inflection);
+        advanceInflection(current_function, registers);
         // RATE controls the XCK response/duration counters only. Articulation
         // continues at the fixed 20 kHz digital-control cadence.
         advanceControl(registers);
@@ -715,13 +737,18 @@ public:
         visible_output_ = 0;
     }
 
-    void startPhone() {
-        // Appletini aborts any in-flight multi-cycle synthesis pipeline when
-        // a new SSI phone starts. Its audio_q register consequently retains
-        // the sample that was visible at the preceding audio tick. Host-side
-        // rendering computes that next sample atomically, so discard the
-        // hidden look-ahead value before masking the old phone's histories.
-        output_ = visible_output_;
+    void startPhone(bool sample_in_flight) {
+        // Appletini aborts the multi-cycle synthesis pipeline when a new SSI
+        // phone starts (ssi263_formant_backend.sv:1061-1076). The pipeline
+        // runs for about 151 fabric clocks after an audio tick, so only a
+        // start that lands within it (the XCK cycle after the tick) loses
+        // the sample being computed: audio_q then keeps the sample that was
+        // visible at that tick. Host-side rendering computes the next sample
+        // atomically, so discard that hidden look-ahead value in that case
+        // only. Either way the old phone's filter histories are masked.
+        if (sample_in_flight) {
+            output_ = visible_output_;
+        }
         resetHistory();
     }
 
@@ -749,8 +776,13 @@ public:
             static_cast<int64_t>(scale4(noise_source, sample_core.filt_fa)) <<
             kNoiseShaperInputShift);
 
-        const int32_t f1 = f1_.process(
-            voice_input, coefficients.f1[filter_core.filt_f1 & 0x0F]);
+        // The backend fetches F1's input-tap coefficient (tap 0) before a
+        // control commit can land in this sample, and the other taps after
+        // it (ssi263_formant_backend.sv:1191-1215).
+        std::array<int16_t, 7> f1_coefficients =
+            coefficients.f1[filter_core.filt_f1 & 0x0F];
+        f1_coefficients[0] = coefficients.f1[sample_core.filt_f1 & 0x0F][0];
+        const int32_t f1 = f1_.process(voice_input, f1_coefficients);
         const int32_t f2 = f2_voice_.process(
             f1, coefficients.f2[((filter_core.filt_f2 & 0x1F) << 4) |
                                 (filter_core.filt_f2q & 0x0F)]);
@@ -770,8 +802,10 @@ public:
             voice_noise, coefficients.f3[filter_core.filt_f3 & 0x0F]);
         const int32_t mixed = sat24(
             static_cast<int64_t>(f3) +
+            // The noise-mix FC is latched as 0 while the excitation is
+            // muted (backend:1585-1594).
             scale20(fn, static_cast<uint8_t>(
-                5 + (0x0F ^ sample_core.filt_fc))));
+                5 + (0x0F ^ (excitation ? sample_core.filt_fc : 0)))));
         const int32_t f4 = f4_.process(mixed, coefficients.f4);
         const int32_t closed = scale7(f4, sample_core.closureGain());
         const int32_t lowpassed = output_filter_.process(closed, coefficients.fx);
@@ -938,10 +972,10 @@ private:
                 ? core.phone.closure_delay
                 : (core.phone.fa != 0 ? core.phone.voice_delay
                                       : core.phone.closure_delay);
-        if (core.ticks < start_tick) {
+        if (core.attack_ticks < start_tick) {
             return 0;
         }
-        const uint8_t age = core.ticks - start_tick;
+        const uint8_t age = core.attack_ticks - start_tick;
         return age < 3 ? static_cast<uint8_t>(3 - age) : 0;
     }
 
@@ -1004,25 +1038,16 @@ public:
 
     void controlPowerDown() {
         // CTL is a live audio/control gate, not the chip's AP reset input.
-        // Clear externally visible response state and stop this host-side
-        // timing phase, but retain the fixed-point pipeline so its already
-        // registered output follows the same staged, slew-limited path to
-        // zero as Appletini.  A later CTL falling edge starts the retained
-        // DURPHON value and masks the old filter histories.
+        // Appletini's wrapper only clears A/!R and the IRQ here
+        // (ssi263_bus_wrapper.sv SSI_CTTRAMP); the interrupt enable, the
+        // response and duration counters and the control core keep running,
+        // while the backend masks the excitation (backend:1585-1594). The
+        // fixed-point pipeline is retained, so its registered output follows
+        // the same staged, slew-limited path to zero as Appletini. A later
+        // CTL falling edge latches the mode, starts the retained DURPHON
+        // value and masks the old filter histories.
         ready = false;
-        active = false;
         completion_pending = false;
-        interrupts_enabled = false;
-        acknowledge_guard = false;
-        response_active = false;
-        duration_active = false;
-        response_ticks_left = 0;
-        duration_ticks_left = 0;
-        response_slot = 0;
-        duration_frame = 0;
-        samples_remaining = 0;
-        samples_total = 0;
-        samples_elapsed = 0;
     }
 
     void latchModeAndInterrupts() {
@@ -1041,7 +1066,7 @@ public:
         // A new native phone selects new switched-filter coefficients. The
         // verified Appletini backend masks the old IIR delay-line values when
         // that coefficient set changes.
-        synth.startPhone();
+        synth.startPhone(xck_since_sample <= 1);
         active = true;
         response_active = true;
         duration_active = true;
@@ -1098,6 +1123,9 @@ public:
 
     void clockXck() {
         bool response_boundary = false;
+        if (xck_since_sample < 0xFF) {
+            ++xck_since_sample;
+        }
 
         if (active && response_active) {
             if (--response_ticks_left == 0) {
@@ -1136,6 +1164,7 @@ public:
     }
 
     float generateSample() {
+        xck_since_sample = 0;
         const uint8_t amplitude = static_cast<uint8_t>(registers[3] & 0x0F);
         // Appletini suppresses both excitation paths while CTL is high or
         // amplitude is zero.  Continuing to drive hidden filter history here
@@ -1149,9 +1178,17 @@ public:
         // affects this sample's filters without retroactively changing the
         // excitation that was latched at its start.
         const FormantCore sample_core = core;
-        if (active) {
-            core.advanceSample(current_function, registers);
-            core.filter_dirty = false;
+        // The SC-01 control core has no enable (sc01a_digital_core.sv:623-725):
+        // its 20 kHz update phase, pitch, noise and interpolators run from
+        // power-on, before the first phone and while CTL is high.
+        core.advanceSample(current_function, registers);
+        core.filter_dirty = false;
+        // The next XCK edge lands about 69 fabric clocks after this tick,
+        // before the attack stage (about 140): a duration-frame boundary on
+        // that edge is already visible to it.
+        core.attack_ticks = core.ticks;
+        if (active && duration_active && duration_ticks_left == 1) {
+            core.attack_ticks = core.ticks == 0x0F ? 0 : core.ticks + 1;
         }
         const float sample = synth.render(
             sample_core, core, excite, excite ? amplitude : 0);
@@ -1185,6 +1222,9 @@ public:
     uint32_t samples_remaining = 0;
     uint32_t samples_total = 0;
     uint32_t samples_elapsed = 0;
+    // XCK edges since the last rendered sample: the Phasor clocks XCK once
+    // an Apple cycle, after that cycle's audio tick.
+    uint8_t xck_since_sample = 0xFF;
 };
 
 SSI263::SSI263() : impl_(std::make_unique<Impl>()) {

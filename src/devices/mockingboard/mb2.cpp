@@ -250,8 +250,8 @@ private:
                         max_speech_values_per_frame);
             }
             // Retain the two mono socket signals independently. The card
-            // mixer centers each one at constant power after the AY banks
-            // have rendered, rather than treating these as hard L/R samples.
+            // mixer routes them after the AY banks have rendered: the
+            // secondary to the left channel, the primary to the right.
             speech_audio_buffer.push_back(secondary);
             speech_audio_buffer.push_back(primary);
         }
@@ -500,7 +500,8 @@ public:
         ay_secondary->generateSamples(samples_this_frame, secondary_mask);
 
         // Speech samples were produced on their original XCK timeline. Mix
-        // both mono SSI sockets at constant-power center, preserving the AY
+        // the secondary SSI socket into the left channel and the primary
+        // into the right, as Appletini does, preserving the AY
         // banks' existing stereo topology. Do one final saturation only after
         // every card source has contributed, then apply Appletini's fixed +8
         // card-level warmth network on the exact 48 kHz emulated timeline.

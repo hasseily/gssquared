@@ -96,16 +96,20 @@ constexpr bool nativeTimerReadNeedsExtraTick(uint8_t mode, uint8_t offset) {
     return isPhasorNative(mode) && (reg == 0x04 || reg == 0x08);
 }
 
-// A real Phasor advances a selected VIA timer by one additional 1 MHz tick
-// before returning a native-mode T1C-L or T2C-L read. Keeping the operation in
-// this shared adapter makes both the production call order and the decode
-// directly testable without coupling the decoder tests to the full emulator.
+// A native-mode T1C-L or T2C-L read advances the selected VIA timer by one
+// additional 1 MHz tick. Appletini serves the value at serve_en and the extra
+// tick lands with the read strobe at data_en, after it (mockingboard.sv's
+// read path, via6522.v timer_read_extra_tick), so the read returns the
+// counter from before the extra tick. Keeping the operation in this shared
+// adapter makes both the production call order and the decode directly
+// testable without coupling the decoder tests to the full emulator.
 template <typename Via>
 uint8_t readVia(uint8_t mode, uint8_t offset, Via &via) {
+    const uint8_t value = via.read(offset & 0x0F);
     if (nativeTimerReadNeedsExtraTick(mode, offset)) {
         via.incr_cycle();
     }
-    return via.read(offset & 0x0F);
+    return value;
 }
 
 struct SsiSelects {
@@ -216,12 +220,6 @@ constexpr uint8_t combineAyRead(bool primary_drove, uint8_t primary_data,
                                 (secondary_drove ? secondary_data : 0));
 }
 
-// A mono source panned to the center contributes 1/sqrt(2) to each output.
-// The squared channel gains therefore sum to one, so centering a single SSI
-// neither doubles its power nor makes the usual primary-socket speech audible
-// in only one speaker.
-inline constexpr float kCenterPanGain = 0.7071067811865475244f;
-
 struct StereoSample {
     float left;
     float right;
@@ -235,19 +233,22 @@ constexpr float limitAudioSample(float sample) {
 // every intermediate in the float mix domain and saturate only the completed
 // card output; clipping after each source would make cancellation and the
 // result itself depend on source order.
+//
+// The speech routing is Appletini's (mockingboard.sv final_audio_mix,
+// mix_speech): the A5 secondary socket goes to the left channel only and the
+// A6 primary socket to the right channel only, each at full level, in every
+// card mode.
 constexpr StereoSample mixAudioSample(float ay_primary_left,
                                       float ay_primary_right,
                                       float ay_secondary_left,
                                       float ay_secondary_right,
                                       float ssi_secondary,
                                       float ssi_primary) {
-    const float centered_speech =
-        (ssi_secondary + ssi_primary) * kCenterPanGain;
     return {
         limitAudioSample(ay_primary_left + ay_secondary_left +
-                         centered_speech),
+                         ssi_secondary),
         limitAudioSample(ay_primary_right + ay_secondary_right +
-                         centered_speech),
+                         ssi_primary),
     };
 }
 

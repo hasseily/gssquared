@@ -372,8 +372,10 @@ bits are set reaches both VIAs; a read ORs their results. Echo+ mode mirrors
 VIA-B throughout the complete `$Cx00-$CxFF` slot page.
 
 Native-mode reads of either VIA's T1C-L or T2C-L advance that selected timer by
-one additional 1 MHz tick before returning its value, matching the Phasor
-detection timing. This extra tick does not apply in mode 0 or Echo+ mode.
+one additional 1 MHz tick, matching the Phasor detection timing. As on
+Appletini, the read returns the counter from before that extra tick (the value
+is served before the read strobe ticks the timer). This extra tick does not
+apply in mode 0 or Echo+ mode.
 
 Each VIA has a primary and a secondary AY-3-8913-compatible PSG. Port B bits 1
 and 0 remain BDIR and BC1, and bit 2 remains the active-low AY reset. In the
@@ -410,12 +412,10 @@ A2-A0 select registers 0-7, with 4-7 all aliasing FILFREQ. Because the selects
 are independent, a write with both A6 and A5 set reaches both speech chips.
 The coincident VIA decode still occurs according to the current card mode.
 
-Each SSI is a mono source. GSSquared centers both sockets into the left and
-right channels of the shared 48 kHz card stream with a constant-power
-`1/sqrt(2)` coefficient. Software using only the usual primary socket is thus
-audible in both speakers without doubling its total power. The AY banks retain
-their existing stereo placement. The card mixer sums the active AY and centered
-SSI sources in floating point and saturates once at the completed card output;
+Each SSI is a mono source. As on Appletini, the A5 secondary socket goes to
+the left channel only and the A6 primary socket to the right channel only, each
+at full level, in every card mode. The AY banks retain their existing stereo
+placement. The card mixer sums the active AY and SSI sources in floating point and saturates once at the completed card output;
 this avoids source-order-dependent clipping. The saturated mix then passes
 through the same fixed +8 card-level warmth network used by Appletini: a
 warm-band boost, one-quarter treble subtraction, and a soft knee at 20480 PCM.
@@ -476,8 +476,10 @@ progress. RATE controls public duration and response timing only; it does not
 speed up articulation.
 
 CTTRAMP bit 7 powers the output down, mutes it, clears the visible request, and
-suppresses new A/!R assertions. Lowering the bit starts the latched DURPHON
-again with a full response interval. The first transitioned-inflection phone
+suppresses new A/!R assertions. As on Appletini, the response and duration
+counters, the interrupt enable and the SC-01 control core keep running while
+it is set; only the excitation and A/!R are masked. Lowering the bit latches
+the mode and starts the latched DURPHON again with a full response interval. The first transitioned-inflection phone
 seeds its pitch from the first live 12-bit target instead of sweeping up from
 an artificial zero; subsequent transitioned phones retain the running upper
 pitch target.
@@ -494,7 +496,15 @@ backend, however, it is acoustically unused: it does not retune the fixed 20 kHz
 formant coefficient model, and no value (including `$FF`) is a mute command.
 IIR history is invalidated at a phone boundary, matching the Appletini
 validity-mask behavior and avoiding stale-coefficient crackle without resetting
-the oscillator or interpolation state.
+the oscillator or interpolation state. A phone start that lands in the XCK
+cycle right after an audio tick also drops the sample then being computed, as
+Appletini's synthesis pipeline is aborted mid-sample.
+
+The SC-01 control core has no enable, as in Appletini: its 20 kHz update phase,
+pitch counter, noise generator and formant interpolators run from power-on,
+toward the reset targets (F1=7, F2=9, F2Q=4, F3=C, silent) until the first
+phone, and keep running while CTL is high. The pitch period is reloaded from
+the inflection before each 20 kHz update.
 
 ## Speech synthesis fidelity
 
@@ -515,7 +525,7 @@ the Appletini signal path at 48 kHz with Q15 filter coefficients, saturating
 24-bit intermediate stages, and signed 16-bit output. Its output stage mirrors
 Appletini's soft limiter (a knee at +/-8192 with 4:1 compression beyond it) and
 limits adjacent output changes to 3000 counts per sample. The result is then
-converted to the card mixer's floating-point domain for constant-power stereo
+converted to the card mixer's floating-point domain for the per-socket stereo
 placement and the single final card-output saturation described above.
 
 This remains neither a transistor-level SC-02 model nor a claim of equivalence

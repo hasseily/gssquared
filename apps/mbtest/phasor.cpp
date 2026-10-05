@@ -127,16 +127,18 @@ struct TimerProbeVia {
     }
 };
 
+// Appletini serves the read value at serve_en; the extra native-mode tick
+// lands with the read strobe at data_en, after it.
 void testNativeTimerReadTiming() {
     TimerProbeVia t1;
-    expect(PL::readVia(PL::kModePhasor, 0x94, t1) == 1 &&
+    expect(PL::readVia(PL::kModePhasor, 0x94, t1) == 0 &&
                t1.ticks == 1 && t1.read_reg == 0x04,
-           "native T1C-L read advances the selected VIA before sampling");
+           "native T1C-L read samples the VIA, then advances it");
 
     TimerProbeVia t2;
-    expect(PL::readVia(PL::kModePhasor, 0x98, t2) == 1 &&
+    expect(PL::readVia(PL::kModePhasor, 0x98, t2) == 0 &&
                t2.ticks == 1 && t2.read_reg == 0x08,
-           "native T2C-L read advances the selected VIA before sampling");
+           "native T2C-L read samples the VIA, then advances it");
 
     TimerProbeVia high;
     expect(PL::readVia(PL::kModePhasor, 0x95, high) == 0 &&
@@ -651,34 +653,29 @@ void testStereoMapping() {
 void testAudioMixer() {
     constexpr float epsilon = 0.000001f;
 
+    // Appletini (mockingboard.sv mix_speech): the A6 primary socket goes to
+    // the right channel only and the A5 secondary to the left only, at unity.
     const PL::StereoSample primary =
-        PL::mixAudioSample(0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 1.0f);
-    expect(std::fabs(primary.left - PL::kCenterPanGain) < epsilon &&
-               std::fabs(primary.right - PL::kCenterPanGain) < epsilon,
-           "primary SSI is constant-power centered");
-    expect(std::fabs(primary.left * primary.left +
-                     primary.right * primary.right - 1.0f) < epsilon,
-           "center pan preserves single-SSI power");
+        PL::mixAudioSample(0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.5f);
+    expect(primary.left == 0.0f && std::fabs(primary.right - 0.5f) < epsilon,
+           "primary SSI goes to the right channel only, at unity");
 
     const PL::StereoSample secondary =
-        PL::mixAudioSample(0.0f, 0.0f, 0.0f, 0.0f, 1.0f, 0.0f);
-    expect(std::fabs(secondary.left - primary.left) < epsilon &&
-               std::fabs(secondary.right - primary.right) < epsilon,
-           "secondary SSI uses the same centered route");
+        PL::mixAudioSample(0.0f, 0.0f, 0.0f, 0.0f, 0.5f, 0.0f);
+    expect(std::fabs(secondary.left - 0.5f) < epsilon && secondary.right == 0.0f,
+           "secondary SSI goes to the left channel only, at unity");
 
-    // 0.6 + 0.6 - 0.6/sqrt(2) = ~0.7757. An intermediate clamp after the
-    // two AY banks would instead produce ~0.5757, exposing source-order bias.
+    // 0.6 + 0.6 - 0.6 = 0.6. An intermediate clamp after the two AY banks
+    // would instead produce 0.4, exposing source-order bias.
     const PL::StereoSample cancellation =
-        PL::mixAudioSample(0.6f, 0.6f, 0.6f, 0.6f, 0.0f, -0.6f);
-    constexpr float expected =
-        1.2f - 0.6f * PL::kCenterPanGain;
-    expect(std::fabs(cancellation.left - expected) < epsilon &&
-               std::fabs(cancellation.right - expected) < epsilon,
+        PL::mixAudioSample(0.6f, 0.6f, 0.6f, 0.6f, -0.6f, -0.6f);
+    expect(std::fabs(cancellation.left - 0.6f) < epsilon &&
+               std::fabs(cancellation.right - 0.6f) < epsilon,
            "AY and SSI sources sum before the single final limiter");
 
     const PL::StereoSample limited =
         PL::mixAudioSample(0.8f, -0.8f, 0.8f, -0.8f, 1.0f, 1.0f);
-    expect(limited.left == 1.0f && limited.right > -0.2f,
+    expect(limited.left == 1.0f && std::fabs(limited.right + 0.6f) < epsilon,
            "completed card mix is limited once at the output");
 }
 

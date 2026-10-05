@@ -533,9 +533,12 @@ int main() {
         std::fprintf(stderr, "SSI-263 power-down setup did not remain active\n");
         return 1;
     }
+    // CTL only clears the request and masks the excitation, as in Appletini's
+    // wrapper: the phone's timing keeps running underneath.
     power_down_speech.write(3, 0xDA);
-    if (power_down_speech.active() || power_down_speech.ready()) {
-        std::fprintf(stderr, "SSI-263 warm power-down did not stop timing\n");
+    if (!power_down_speech.active() || power_down_speech.ready()) {
+        std::fprintf(stderr,
+            "SSI-263 CTL did not clear D7 while keeping the phone timing\n");
         return 1;
     }
 
@@ -566,7 +569,7 @@ int main() {
         silent_run = output == 0 ? silent_run + 1 : 0;
         previous_output = output;
     }
-    if (silent_run != 64 || power_down_speech.active() ||
+    if (silent_run != 64 || !power_down_speech.active() ||
         power_down_speech.ready()) {
         std::fprintf(stderr,
             "SSI-263 CTL pipeline did not settle silently "
@@ -726,14 +729,16 @@ int main() {
         return 1;
     }
 
-    // A warm CTL stop cancels the active phase but retains registers. Waiting
-    // while stopped cannot shorten the first response after CTL falls again.
+    // A CTL stop masks the phone (its timing runs on, as in Appletini, but
+    // raises no request) and retains registers. Waiting while stopped cannot
+    // shorten the first response after CTL falls again: that restarts the
+    // phone with a full interval.
     SSI263 stopped;
     configureSpeech(stopped, 0xCB, 0x55, 0xF3, 0x0F, 0xE7);
     clockTicks(stopped, 1000);
     stopped.write(3, 0x80);
     clockTicks(stopped, 9000);
-    if (stopped.active() || stopped.ready() ||
+    if (!stopped.active() || stopped.ready() ||
         std::fabs(stopped.pitchHz() - 20000.0f / 533.0f) > 0.001f) {
         std::fprintf(stderr, "SSI-263 warm reset did not retain registers\n");
         return 1;
