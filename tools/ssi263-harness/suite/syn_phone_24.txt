@@ -1,0 +1,18 @@
+# phoneme 24: PA, 24 D=0, 24 D=2, PA; DR=11, R=A, I=52/8
+mode phasor
+ssi P 3 80
+ssi P 1 52
+ssi P 2 A8
+ssi P 4 E6
+ssi P 0 C0
+ssi P 3 7F
+waitd7 P
+ssi P 0 24
+waitd7 P
+ssi P 0 A4
+waitd7 P
+ssi P 0 C0
+waitd7 P
+ssi P 3 80
+samples 1200
+end

@@ -1,0 +1,21 @@
+# Apple RESET mid-phone: CTL forced high, registers kept; resume with CTL low
+mode phasor
+ssi P 3 80
+ssi P 1 52
+ssi P 2 A8
+ssi P 4 E6
+ssi P 0 C0
+ssi P 3 7F
+waitd7 P
+ssi P 0 0A
+samples 500
+reset 20
+samples 800
+mode phasor
+ssi P 3 7F
+waitd7 P
+ssi P 0 91
+waitd7 P
+ssi P 3 80
+samples 1200
+end

@@ -1,0 +1,36 @@
+# transitioned inflection (DR=11), slope 7: target moves each phone
+mode phasor
+ssi P 3 80
+ssi P 1 27
+ssi P 2 A0
+ssi P 4 E6
+ssi P 0 C0
+ssi P 3 7F
+waitd7 P
+ssi P 1 27
+ssi P 2 A0
+ssi P 0 0A
+waitd7 P
+ssi P 1 4F
+ssi P 2 A1
+ssi P 0 0A
+waitd7 P
+ssi P 1 77
+ssi P 2 A2
+ssi P 0 11
+waitd7 P
+ssi P 1 9F
+ssi P 2 A3
+ssi P 0 11
+waitd7 P
+ssi P 1 C7
+ssi P 2 A4
+ssi P 0 20
+waitd7 P
+ssi P 1 EF
+ssi P 2 A5
+ssi P 0 20
+waitd7 P
+ssi P 3 80
+samples 1200
+end

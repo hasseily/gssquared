@@ -1,0 +1,28 @@
+# amplitude stepped during a vowel, then muted with A=0 and restored
+mode phasor
+ssi P 3 80
+ssi P 1 52
+ssi P 2 A8
+ssi P 4 E6
+ssi P 0 C0
+ssi P 3 7F
+waitd7 P
+ssi P 0 0A
+samples 250
+ssi P 3 7C
+samples 250
+ssi P 3 78
+samples 250
+ssi P 3 74
+samples 250
+ssi P 3 71
+samples 250
+ssi P 3 70
+samples 250
+ssi P 3 70
+samples 250
+ssi P 3 7F
+waitd7 P
+ssi P 3 80
+samples 1200
+end

@@ -1,0 +1,21 @@
+# broadcast writes ($C460-$C467 select both sockets)
+mode phasor
+w C463 80
+w C461 52
+w C462 A8
+w C460 C0
+w C463 7F
+waitd7 P
+w C460 EC
+waitd7 P
+w C460 CB
+waitd7 P
+w C460 E0
+waitd7 P
+w C460 91
+waitd7 P
+w C460 80
+waitd7 P
+w C463 80
+samples 1200
+end

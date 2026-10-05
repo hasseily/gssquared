@@ -1,0 +1,25 @@
+# A/R pending across mode switches (native -> MB -> native)
+mode mb
+w C48C 00
+w C48E 82
+mode phasor
+ssi P 3 80
+ssi P 1 52
+ssi P 2 A8
+ssi P 4 E6
+ssi P 0 C0
+ssi P 3 7F
+waitd7 P
+ssi P 0 CA
+samples 2000
+mode mb
+wait 50
+r C48D
+mode phasor
+wait 50
+r C440
+ssi P 0 C0
+waitd7 P
+ssi P 3 80
+samples 600
+end

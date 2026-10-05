@@ -1,0 +1,24 @@
+# RATE changed mid-phone (applies at the next slot)
+mode phasor
+ssi P 3 80
+ssi P 1 52
+ssi P 2 A8
+ssi P 4 E6
+ssi P 0 C0
+ssi P 3 7F
+waitd7 P
+ssi P 0 0A
+samples 700
+ssi P 2 48
+samples 700
+ssi P 2 F8
+samples 700
+ssi P 2 08
+samples 700
+ssi P 2 A8
+waitd7 P
+ssi P 0 51
+waitd7 P
+ssi P 3 80
+samples 1200
+end

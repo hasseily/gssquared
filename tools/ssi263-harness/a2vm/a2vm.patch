@@ -1,0 +1,178 @@
+--- a/a2vm.h
++++ b/a2vm.h
+@@ -349,6 +349,9 @@
+     uint64_t write_log_limit;   /* lines; 0 for none. The write that would
+                                    pass it halts the run */
+ 
++    /* ssi_ext.h: this scratch copy's SSI-263 capture extensions */
++    struct ssi_ext *ext;
++
+     /* The zero-page bank pair (README.md, "The zero-page bank pair";
+        docs/firmware/zpbank-spec.md as corrected by zpbank-review.md).
+        zpb.armed is 0 in every run without --zpbank or a pair profile
+--- a/a2vm.c
++++ b/a2vm.c
+@@ -3,6 +3,7 @@
+  * each part names the part of demos/doom/tools/a2sim.py it follows.
+  */
+ #include "a2vm.h"
++#include "ssi_ext.h"
+ 
+ #include <inttypes.h>
+ #include <stdio.h>
+@@ -1435,6 +1436,8 @@
+     unsigned low = address & 0xff;
+     m->io_accesses++;
+     *m->clock += m->io_cycles;
++    if (m->ext && ssi_ext_c0_access(m, address, 1, 0))
++        return 0x00;
+     if (low == 0x00)
+         return keyboard(m);
+     if (low == 0x10) {
+@@ -1478,6 +1481,8 @@
+     unsigned low = address & 0xff;
+     m->io_accesses++;
+     *m->clock += m->io_cycles;
++    if (m->ext && ssi_ext_c0_access(m, address, 0, value))
++        return;
+     if (low <= 0x0f) {
+         a2vm_switch s = (a2vm_switch)(low >> 1);
+         m->sw[s] = low & 1;
+@@ -1523,7 +1528,13 @@
+             return (uint8_t)value;
+     }
+     int slot = (address >> 8) & 7;
+-    if (!m->sw[SW_INTCXROM] && m->phasor_slot > 0 && slot == m->phasor_slot)
++    {
++        uint8_t v;
++        if (m->ext && ssi_ext_slot_read(m, address, &v))
++            return v;
++    }
++    if (!m->sw[SW_INTCXROM] && m->phasor_slot > 0 && slot == m->phasor_slot &&
++        address < 0xc800)   /* ssi copy: $C800-$CFFF is not slot 4's */
+         return phasor_read(m, address);
+     if (m->mouse_on && !m->sw[SW_INTCXROM] && address < 0xc800 &&
+         slot == m->mouse_slot)
+@@ -1551,7 +1562,10 @@
+     *m->clock += m->io_cycles;
+     if (m->amem_on && amem_write(m, address, value))
+         return;
+-    if (m->phasor_slot > 0 && ((address >> 8) & 7) == m->phasor_slot)
++    if (m->ext && ssi_ext_slot_write(m, address, value))
++        return;
++    if (m->phasor_slot > 0 && ((address >> 8) & 7) == m->phasor_slot &&
++        address < 0xc800)
+         phasor_write(m, address, value);
+ }
+ 
+@@ -2122,8 +2136,11 @@
+         }
+         return;
+     }
++    if (m->ext && ssi_ext_step(m))
++        return;
+     int irq = ((m->mouse_on || m->mouse_apple) && m->mouse.irq) ||
+-              (m->mouse_rom && m->romouse.irq) || via_irq(m);
++              (m->mouse_rom && m->romouse.irq) || via_irq(m) ||
++              (m->ext && ssi_ext_irq(m));
+     cpu65c02_set_irq(&m->cpu, 1, irq);
+     int taken = irq && !(m->cpu.p & CPU65C02_I) &&
+                 m->cpu.state != CPU65C02_STOPPED;
+--- a/main.c
++++ b/main.c
+@@ -166,6 +166,7 @@
+  * banks of 64 KB.
+  */
+ #include "a2vm.h"
++#include "ssi_ext.h"
+ 
+ #include <errno.h>
+ #include <inttypes.h>
+@@ -326,6 +327,8 @@
+     uint64_t stop_word_value;
+     int snapshot_boundaries, final_snapshot;
+     int via_ora_nh, via_timers, phasor_mb_only;
++    const char *blockdev, *phasor_log, *screen_log, *expect;
++    int phasor_rtl, boot;
+ } options;
+ 
+ static void add(const char **list, unsigned *count, const char *value)
+@@ -350,6 +353,30 @@
+     o->launched = "DOOM.SYSTEM";
+     for (int i = 1; i < argc; i++) {
+         const char *arg = argv[i];
++        if (!strcmp(arg, "--boot")) {
++            o->boot = 1;
++            continue;
++        }
++        if (!strcmp(arg, "--blockdev") && i + 1 < argc) {
++            o->blockdev = argv[++i];
++            continue;
++        }
++        if (!strcmp(arg, "--phasor-rtl") && i + 1 < argc) {
++            o->phasor_rtl = atoi(argv[++i]);
++            continue;
++        }
++        if (!strcmp(arg, "--phasor-log") && i + 1 < argc) {
++            o->phasor_log = argv[++i];
++            continue;
++        }
++        if (!strcmp(arg, "--screen-log") && i + 1 < argc) {
++            o->screen_log = argv[++i];
++            continue;
++        }
++        if (!strcmp(arg, "--expect") && i + 1 < argc) {
++            o->expect = argv[++i];
++            continue;
++        }
+         if (!strcmp(arg, "--no-mouse")) {
+             o->config.mouse = 0;
+             continue;
+@@ -1704,6 +1731,16 @@
+     if (!m)
+         fail("%s", error);
+     a2vm_amem_options(m, o.amem_supported, o.amem_available, 1);
++    if (o.blockdev)
++        ssi_ext_blockdev(m, o.blockdev);
++    if (o.phasor_rtl)
++        ssi_ext_phasor_rtl(m, o.phasor_rtl);
++    if (o.phasor_log)
++        ssi_ext_phasor_log(m, o.phasor_log);
++    if (o.screen_log)
++        ssi_ext_screen_log(m, o.screen_log);
++    if (o.expect)
++        ssi_ext_expect(m, o.expect);
+     m->via_ora_nh = o.via_ora_nh;
+     m->via_timers = o.via_timers;
+     m->phasor_mb_only = o.phasor_mb_only;
+@@ -1724,6 +1761,8 @@
+     for (unsigned i = 0; i < o.idle_count; i++)
+         add_idle(m, o.idles[i]);
+     a2vm_remap(m);
++    if (o.boot)
++        a2vm_cpu_reset(m);
+     if (o.cost) {
+         if (o.cost_timed && o.bus_script)
+             fail("--cost-timed runs the CPU, not a bus script");
+@@ -1870,6 +1909,13 @@
+             break;
+         }
+         a2vm_step(m);
++        if (m->ext) {
++            ssi_ext_poll(m);
++            if (m->ext->stop) {
++                reason = "stop";
++                break;
++            }
++        }
+         if (low_count)
+             note_lowest_s(m, lows, low_count);
+         if (m->halt[0]) {
+@@ -1970,6 +2016,7 @@
+     if (pclog.file && fclose(pclog.file))
+         fail("cannot write %s", o.pclog);
+     pclog.file = NULL;
++    ssi_ext_finish(m);
+     int status = !strcmp(reason, "halt") ? 1 : 0;
+     if (!strcmp(reason, "cycle-cap")) {
+         fprintf(stderr, "a2vm: the run reached the default limit of %llu "

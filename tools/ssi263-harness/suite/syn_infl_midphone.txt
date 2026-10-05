@@ -1,0 +1,24 @@
+# inflection changes mid-phone (DR=10 and DR=01)
+mode phasor
+ssi P 3 80
+ssi P 1 40
+ssi P 2 A0
+ssi P 4 E6
+ssi P 0 80
+ssi P 3 7F
+waitd7 P
+ssi P 0 0A
+samples 300
+ssi P 1 60
+samples 300
+ssi P 1 80
+samples 300
+ssi P 1 A0
+samples 300
+ssi P 1 C0
+samples 300
+ssi P 1 30
+waitd7 P
+ssi P 3 80
+samples 1200
+end

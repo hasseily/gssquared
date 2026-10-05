@@ -1,0 +1,28 @@
+# Mockingboard mode "hello" with D7 polled via IFR (VIA-A aliasing)
+mode mb
+w C48C 00
+ssi P 3 80
+ssi P 1 52
+ssi P 2 A8
+ssi P 4 E6
+ssi P 0 C0
+ssi P 3 7F
+waitifr P
+ssi P 0 EC
+w C48D 02
+waitifr P
+ssi P 0 CB
+w C48D 02
+waitifr P
+ssi P 0 E0
+w C48D 02
+waitifr P
+ssi P 0 91
+w C48D 02
+waitifr P
+ssi P 0 80
+w C48D 02
+waitifr P
+ssi P 3 80
+samples 1200
+end

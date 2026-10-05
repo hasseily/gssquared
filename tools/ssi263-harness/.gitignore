@@ -1,0 +1,10 @@
+# Everything the harness generates: binaries, Verilator objects, renders,
+# captures, traces, the venv, WAVs (README.md, "Environment").
+/work/
+# The traces are cut from captures of third-party disks: regenerate them
+# with capture.py, never commit them (capture/traces.sha256 records them).
+/traces/
+*.trace
+__pycache__/
+*.pcm
+*.wav

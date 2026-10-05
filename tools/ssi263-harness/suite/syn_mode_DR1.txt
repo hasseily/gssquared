@@ -1,0 +1,28 @@
+# mode DR=1: words, polled D7
+mode phasor
+ssi P 3 80
+ssi P 1 52
+ssi P 2 A8
+ssi P 4 E6
+ssi P 0 40
+ssi P 3 7F
+waitd7 P
+ssi P 0 6A
+waitd7 P
+ssi P 0 4B
+waitd7 P
+ssi P 0 74
+waitd7 P
+ssi P 0 40
+waitd7 P
+ssi P 0 7D
+waitd7 P
+ssi P 0 5F
+waitd7 P
+ssi P 0 7A
+waitd7 P
+ssi P 0 40
+waitd7 P
+ssi P 3 80
+samples 1200
+end

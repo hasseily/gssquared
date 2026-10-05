@@ -1,0 +1,38 @@
+# Phasor native mode, direct IRQ, ISR writes the next phone (acknowledge)
+mode phasor
+ssi P 3 80
+ssi P 1 52
+ssi P 2 A8
+ssi P 4 E6
+ssi P 0 C0
+ssi P 3 7F
+waitirq
+ssi P 0 EC
+waitirq
+ssi P 0 CB
+waitirq
+ssi P 0 E0
+waitirq
+ssi P 0 91
+waitirq
+ssi P 0 80
+waitirq
+ssi P 0 AA
+waitirq
+ssi P 0 CB
+waitirq
+ssi P 0 B4
+waitirq
+ssi P 0 80
+waitirq
+ssi P 0 BD
+waitirq
+ssi P 0 9F
+waitirq
+ssi P 0 BA
+waitirq
+ssi P 0 80
+waitirq
+ssi P 3 80
+samples 1200
+end

@@ -1,0 +1,28 @@
+# articulation 7
+mode phasor
+ssi P 3 80
+ssi P 1 52
+ssi P 2 A8
+ssi P 4 E6
+ssi P 0 C0
+ssi P 3 7F
+waitd7 P
+ssi P 0 AA
+waitd7 P
+ssi P 0 CB
+waitd7 P
+ssi P 0 B4
+waitd7 P
+ssi P 0 80
+waitd7 P
+ssi P 0 BD
+waitd7 P
+ssi P 0 9F
+waitd7 P
+ssi P 0 BA
+waitd7 P
+ssi P 0 80
+waitd7 P
+ssi P 3 80
+samples 1200
+end

@@ -1,0 +1,22 @@
+# "hello" at D=2 R=8 (DR=11)
+mode phasor
+ssi P 3 80
+ssi P 1 52
+ssi P 2 88
+ssi P 4 E6
+ssi P 0 C0
+ssi P 3 7F
+waitd7 P
+ssi P 0 EC
+waitd7 P
+ssi P 0 CB
+waitd7 P
+ssi P 0 E0
+waitd7 P
+ssi P 0 91
+waitd7 P
+ssi P 0 80
+waitd7 P
+ssi P 3 80
+samples 1200
+end

@@ -1,0 +1,20 @@
+# Mockingboard mode, PCR bit 0 = 1 (positive CA1 edge): no IFR from A/R
+mode mb
+w C48C 01
+w C48E 82
+ssi P 3 80
+ssi P 1 52
+ssi P 2 A8
+ssi P 4 E6
+ssi P 0 C0
+ssi P 3 7F
+samples 3000
+ssi P 0 8A
+r C48D
+samples 3000
+ssi P 0 91
+r C48D
+samples 3000
+ssi P 3 80
+samples 1200
+end

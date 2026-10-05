@@ -1,0 +1,36 @@
+# Mockingboard mode, IRQ on VIA-B CA1 ($C48E=82), ISR writes next phone
+mode mb
+w C48C 00
+w C48E 82
+ssi P 3 80
+ssi P 1 52
+ssi P 2 A8
+ssi P 4 E6
+ssi P 0 C0
+ssi P 3 7F
+waitirq
+r C48D
+ssi P 0 EC
+w C48D 02
+waitirq
+r C48D
+ssi P 0 CB
+w C48D 02
+waitirq
+r C48D
+ssi P 0 E0
+w C48D 02
+waitirq
+r C48D
+ssi P 0 D1
+w C48D 02
+waitirq
+r C48D
+ssi P 0 C0
+w C48D 02
+waitirq
+r C48D
+ssi P 3 80
+w C48D 02
+samples 1200
+end

@@ -1,0 +1,37 @@
+# Mockingboard mode, polled IFR CA1, PCR=00
+mode mb
+w C48C 00
+ssi P 3 80
+ssi P 1 52
+ssi P 2 A8
+ssi P 4 E6
+ssi P 0 C0
+ssi P 3 7F
+waitifr P
+ssi P 0 6A
+w C48D 02
+waitifr P
+ssi P 0 4B
+w C48D 02
+waitifr P
+ssi P 0 74
+w C48D 02
+waitifr P
+ssi P 0 40
+w C48D 02
+waitifr P
+ssi P 0 7D
+w C48D 02
+waitifr P
+ssi P 0 5F
+w C48D 02
+waitifr P
+ssi P 0 7A
+w C48D 02
+waitifr P
+ssi P 0 40
+w C48D 02
+waitifr P
+ssi P 3 80
+samples 1200
+end
